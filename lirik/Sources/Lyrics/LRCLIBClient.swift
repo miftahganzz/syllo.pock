@@ -115,6 +115,25 @@ final class LRCLIBClient: Sendable {
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Determines whether candidate artist correlates with target query artist
+    static func isArtistMatch(queryArtist: String, candidateArtist: String) -> Bool {
+        let a = queryArtist.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let b = candidateArtist.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if a.isEmpty || b.isEmpty { return false }
+        if a == b { return true }
+        if a.contains(b) || b.contains(a) { return true }
+
+        // Token overlap check (ignoring common conjunctions and filler words)
+        let stopWords: Set<String> = ["the", "and", "feat", "ft", "with", "band", "orchestra", "quartet", "trio", "ensemble"]
+        let tokensA = Set(a.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count > 2 && !stopWords.contains($0) })
+        let tokensB = Set(b.components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count > 2 && !stopWords.contains($0) })
+
+        if !tokensA.isEmpty && !tokensB.isEmpty && !tokensA.isDisjoint(with: tokensB) {
+            return true
+        }
+        return false
+    }
+
     /// Multi-tier lyrics fetching pipeline
     func fetchLyrics(
         title: String,
@@ -139,7 +158,7 @@ final class LRCLIBClient: Sendable {
             if case .plainOnly = swappedRes { return swappedRes }
         }
 
-        // Tier 3: Fuzzy /api/search lookup with candidate evaluation
+        // Tier 3: Fuzzy /api/search lookup with strict candidate validation
         let searchQueries: [String] = [
             "\(cleanArtist) \(cleanTitle)".trimmingCharacters(in: .whitespaces),
             "\(cleanTitle) \(cleanArtist)".trimmingCharacters(in: .whitespaces),
@@ -147,7 +166,7 @@ final class LRCLIBClient: Sendable {
         ].filter { !$0.isEmpty }
 
         for q in searchQueries {
-            if let searchResult = try? await querySearchAPI(query: q, preferredArtist: cleanArtist, duration: duration), searchResult != .notFound {
+            if let searchResult = try? await querySearchAPI(query: q, preferredArtist: cleanArtist, preferredTitle: cleanTitle, duration: duration), searchResult != .notFound {
                 return searchResult
             }
         }
@@ -167,23 +186,20 @@ final class LRCLIBClient: Sendable {
             throw LRCLIBError.invalidURL
         }
 
-        var queryItems: [URLQueryItem] = [
-            URLQueryItem(name: "track_name", value: title)
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "track_name", value: title),
+            URLQueryItem(name: "artist_name", value: artist)
         ]
 
-        if !artist.isEmpty {
-            queryItems.append(URLQueryItem(name: "artist_name", value: artist))
+        if let alb = album, !alb.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            items.append(URLQueryItem(name: "album_name", value: alb))
         }
 
-        if let album = album, !album.isEmpty {
-            queryItems.append(URLQueryItem(name: "album_name", value: album))
+        if let dur = duration, dur > 0 {
+            items.append(URLQueryItem(name: "duration", value: String(Int(dur.rounded()))))
         }
 
-        if let duration = duration, duration > 0 {
-            queryItems.append(URLQueryItem(name: "duration", value: String(Int(duration.rounded()))))
-        }
-
-        components.queryItems = queryItems
+        components.queryItems = items
 
         guard let url = components.url else {
             throw LRCLIBError.invalidURL
@@ -234,6 +250,7 @@ final class LRCLIBClient: Sendable {
     private func querySearchAPI(
         query: String,
         preferredArtist: String? = nil,
+        preferredTitle: String? = nil,
         duration: TimeInterval? = nil
     ) async throws -> LRCLIBResult {
         guard var components = URLComponents(string: searchBaseURL) else {
@@ -270,27 +287,42 @@ final class LRCLIBClient: Sendable {
         guard !results.isEmpty else { return .notFound }
 
         // Find candidate with highest score:
-        // Priority 1: Has synced lyrics (+100) vs plain (+50)
-        // Priority 2: Matches preferred artist (+80)
-        // Priority 3: Closest duration
+        // Priority 1: Strict Artist match (if preferred artist is given)
+        // Priority 2: Has synced lyrics (+100) vs plain (+50)
+        // Priority 3: Title match accuracy
+        // Priority 4: Closest duration
         var bestCandidate: LRCLIBResponseDTO? = nil
         var bestScore: Double = -1.0
 
-        let lowerArtist = preferredArtist?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanArtist = preferredArtist?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let cleanTitle = preferredTitle?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         for item in results {
             let hasSynced = (item.syncedLyrics != nil && !item.syncedLyrics!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             let hasPlain = (item.plainLyrics != nil && !item.plainLyrics!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             guard hasSynced || hasPlain else { continue }
 
+            let candidateArtist = (item.artistName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let candidateTitle = (item.trackName ?? item.name ?? "").lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+            // Strict Artist Filtering: Prevent completely unrelated artists from matching
+            if !cleanArtist.isEmpty {
+                let matchesArtist = Self.isArtistMatch(queryArtist: cleanArtist, candidateArtist: candidateArtist)
+                guard matchesArtist else { continue }
+            }
+
             var score: Double = hasSynced ? 100.0 : 50.0
 
-            if !lowerArtist.isEmpty, let candidateArtist = item.artistName?.lowercased() {
-                if candidateArtist.contains(lowerArtist) || lowerArtist.contains(candidateArtist) {
-                    score += 80.0
+            // Title correlation bonus
+            if !cleanTitle.isEmpty {
+                if candidateTitle == cleanTitle {
+                    score += 50.0
+                } else if candidateTitle.contains(cleanTitle) || cleanTitle.contains(candidateTitle) {
+                    score += 25.0
                 }
             }
 
+            // Duration accuracy
             if let targetDur = duration, targetDur > 0, let itemDur = item.duration, itemDur > 0 {
                 let diff = abs(targetDur - itemDur)
                 if diff <= 3.0 {
