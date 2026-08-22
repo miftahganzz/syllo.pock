@@ -852,6 +852,20 @@ class LyricsWidget: NSObject, PKWidget {
                     self.renderSyncSnapshot(snapshot, elapsed: effectiveElapsed, isPaused: !track.isPlaying)
                 } else if case .staticOnly(_, _, let text) = self.uiState {
                     self.renderStaticLyrics(text, elapsed: effectiveElapsed, trackDuration: track.duration, isPaused: !track.isPlaying)
+                } else if case .noLyricsFound(let title, let artist) = self.uiState {
+                    let totalDuration = track.duration ?? 180.0
+                    let totalFraction = totalDuration > 0 ? (effectiveElapsed / totalDuration) : 0.0
+                    FloatingLyricsHUD.shared.update(
+                        current: "No lyrics available",
+                        next: "",
+                        title: title,
+                        artist: artist,
+                        progress: totalFraction,
+                        lineProgress: 0.0,
+                        artwork: self.albumArtImageView.image,
+                        highlightColor: self.resolveHighlightColor(isPaused: !track.isPlaying),
+                        isPlaying: track.isPlaying
+                    )
                 }
             }
         }
@@ -1139,11 +1153,40 @@ class LyricsWidget: NSObject, PKWidget {
             karaokeView.progress = 0.0
             nextLineLabel.stringValue = ""
 
-        case .noLyricsFound:
-            karaokeView.text = "No lyrics available"
-            karaokeView.activeColor = .secondaryLabelColor
-            karaokeView.progress = 0.0
-            nextLineLabel.stringValue = ""
+        case .noLyricsFound(let title, let artist):
+            applyTextAlignment()
+            karaokeView.font = NSFont.boldSystemFont(ofSize: 11)
+            karaokeView.activeColor = resolveHighlightColor(isPaused: isCurrentlyPaused)
+            karaokeView.text = title
+            karaokeView.progress = 1.0
+
+            nextLineLabel.font = NSFont.systemFont(ofSize: 9)
+            nextLineLabel.textColor = .secondaryLabelColor
+            nextLineLabel.isHidden = false
+            nextLineLabel.stringValue = "\(artist) • (No lyrics available)"
+
+            let track = nowPlayingWatcher.currentTrack
+            let totalDuration = track?.duration ?? 180.0
+            let elapsed = track?.elapsedTime ?? 0.0
+            let totalFraction = totalDuration > 0 ? (elapsed / totalDuration) : 0.0
+
+            FloatingLyricsHUD.shared.update(
+                current: "No lyrics available",
+                next: "",
+                title: title,
+                artist: artist,
+                progress: totalFraction,
+                lineProgress: 0.0,
+                artwork: albumArtImageView.image,
+                highlightColor: resolveHighlightColor(isPaused: isCurrentlyPaused),
+                isPlaying: !(track?.isPlaying == false)
+            )
+            MenuBarLyricsController.shared.update(
+                lyric: "\(title) - \(artist)",
+                title: title,
+                artist: artist,
+                isPlaying: !(track?.isPlaying == false)
+            )
 
         case .staticOnly(_, _, let text):
             let elapsed = nowPlayingWatcher.currentTrack?.elapsedTime ?? 0
