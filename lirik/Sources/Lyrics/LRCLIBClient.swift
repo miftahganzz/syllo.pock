@@ -90,6 +90,9 @@ final class LRCLIBClient: Sendable {
             "\\[?\\b(?:lirik\\s+terjemahan\\s+indonesia|lirik\\s+terjemahan|terjemahan\\s+indonesia|arti\\s+lirik|sub\\s+indo|lirik\\s+lagu|lirik\\s+video|lirik|terjemahan)\\b\\]?",
             "\\(?\\b(?:letra\\s+en\\s+español|sub\\s+español|tradução|lyrics|with\\s+lyrics)\\b\\)?",
             "\\[?\\b(?:letra\\s+en\\s+español|sub\\s+español|tradução|lyrics|with\\s+lyrics)\\b\\]?",
+            "\\s*\\(.*(?:orchestral|orchestra|acoustic|instrumental|piano|guitar|string|cover|version|slowed|reverb|sped up|remix|edit|mix|mono|stereo|soundtrack|ost|ost\\.|score|session|unplugged|radio|tribute|tribute to).*\\)",
+            "\\s*\\[.*(?:orchestral|orchestra|acoustic|instrumental|piano|guitar|string|cover|version|slowed|reverb|sped up|remix|edit|mix|mono|stereo|soundtrack|ost|ost\\.|score|session|unplugged|radio|tribute|tribute to).*\\]",
+            "\\s*-\\s*(?:orchestral|orchestra|acoustic|instrumental|piano|guitar|string|cover|version|slowed|reverb|sped up|remix|edit|mix|mono|stereo|soundtrack|ost|ost\\.|score|session|unplugged|radio|tribute).*$",
             "\\s*\\(.*remaster.*\\)",
             "\\s*\\[.*remaster.*\\]",
             "\\s*\\(.*deluxe.*\\)",
@@ -97,6 +100,7 @@ final class LRCLIBClient: Sendable {
             "\\s*\\(.*edition.*\\)",
             "\\s*\\(.*live.*\\)",
             "\\s*-\\s*live.*",
+            "\\s*-\\s*\\d{4}\\s*remaster.*",
             "\\s*-\\s*remastered.*",
             "\\s*\\(feat\\..*\\)",
             "\\s*\\[feat\\..*\\]",
@@ -135,7 +139,7 @@ final class LRCLIBClient: Sendable {
             if case .plainOnly = swappedRes { return swappedRes }
         }
 
-        // Tier 3: Fuzzy /api/search lookup
+        // Tier 3: Fuzzy /api/search lookup with candidate evaluation
         let searchQueries: [String] = [
             "\(cleanArtist) \(cleanTitle)".trimmingCharacters(in: .whitespaces),
             "\(cleanTitle) \(cleanArtist)".trimmingCharacters(in: .whitespaces),
@@ -143,7 +147,7 @@ final class LRCLIBClient: Sendable {
         ].filter { !$0.isEmpty }
 
         for q in searchQueries {
-            if let searchResult = try? await querySearchAPI(query: q, duration: duration), searchResult != .notFound {
+            if let searchResult = try? await querySearchAPI(query: q, preferredArtist: cleanArtist, duration: duration), searchResult != .notFound {
                 return searchResult
             }
         }
@@ -229,6 +233,7 @@ final class LRCLIBClient: Sendable {
 
     private func querySearchAPI(
         query: String,
+        preferredArtist: String? = nil,
         duration: TimeInterval? = nil
     ) async throws -> LRCLIBResult {
         guard var components = URLComponents(string: searchBaseURL) else {
@@ -265,10 +270,13 @@ final class LRCLIBClient: Sendable {
         guard !results.isEmpty else { return .notFound }
 
         // Find candidate with highest score:
-        // Priority 1: Has synced lyrics
-        // Priority 2: Closest duration (if duration provided)
+        // Priority 1: Has synced lyrics (+100) vs plain (+50)
+        // Priority 2: Matches preferred artist (+80)
+        // Priority 3: Closest duration
         var bestCandidate: LRCLIBResponseDTO? = nil
         var bestScore: Double = -1.0
+
+        let lowerArtist = preferredArtist?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         for item in results {
             let hasSynced = (item.syncedLyrics != nil && !item.syncedLyrics!.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -277,12 +285,18 @@ final class LRCLIBClient: Sendable {
 
             var score: Double = hasSynced ? 100.0 : 50.0
 
+            if !lowerArtist.isEmpty, let candidateArtist = item.artistName?.lowercased() {
+                if candidateArtist.contains(lowerArtist) || lowerArtist.contains(candidateArtist) {
+                    score += 80.0
+                }
+            }
+
             if let targetDur = duration, targetDur > 0, let itemDur = item.duration, itemDur > 0 {
                 let diff = abs(targetDur - itemDur)
                 if diff <= 3.0 {
-                    score += 50.0
+                    score += 40.0
                 } else if diff <= 10.0 {
-                    score += 25.0
+                    score += 20.0
                 } else {
                     score -= min(30.0, diff)
                 }

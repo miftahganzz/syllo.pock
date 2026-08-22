@@ -1017,9 +1017,10 @@ class LyricsWidget: NSObject, PKWidget {
             }
         }
 
-        // 2. Check Memory Cache & Offline Vault (Feature 6)
+        // 2. Check Memory Cache & Offline Vault
         if !forceRefresh {
-            if let cached = lyricsCache.get(byKey: expectedKey) ?? offlineVault.get(byKey: expectedKey) {
+            if let cached = lyricsCache.get(byKey: expectedKey) ?? offlineVault.get(byKey: expectedKey),
+               cached.lyricsState != .notFound {
                 guard activeTrackKey == expectedKey else { return }
                 applyCachedLyrics(cached, for: track)
                 return
