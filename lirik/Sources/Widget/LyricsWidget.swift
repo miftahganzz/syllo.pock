@@ -1327,10 +1327,23 @@ class LyricsWidget: NSObject, PKWidget {
         let targetIndex = min(lines.count - 1, Int(fraction * Double(lines.count)))
         let nextIndex = targetIndex + 1 < lines.count ? targetIndex + 1 : nil
 
-        let newText = "\(prefix)\(formatLineText(lines[targetIndex]))"
+        let enableRomanize = defaults.object(forKey: LirikPreferenceViewController.keyEnableRomanization) as? Bool ?? true
+        let rawLine = lines[targetIndex]
+        let hasNonLatin = Romanizer.containsNonLatin(rawLine)
+        let displayLine = (enableRomanize && hasNonLatin) ? Romanizer.romanize(rawLine) : rawLine
+        let newText = "\(prefix)\(formatLineText(displayLine))"
         karaokeView.text = newText
         karaokeView.progress = 1.0
-        let upcoming = nextIndex != nil ? lines[nextIndex!] : ""
+
+        let upcomingRaw = nextIndex != nil ? lines[nextIndex!] : ""
+        let upcoming: String
+        if enableRomanize && hasNonLatin {
+            upcoming = rawLine
+        } else if enableRomanize && Romanizer.containsNonLatin(upcomingRaw) {
+            upcoming = Romanizer.romanize(upcomingRaw)
+        } else {
+            upcoming = upcomingRaw
+        }
         animateNextLineChange(label: nextLineLabel, newText: upcoming)
 
         // Update Floating Desktop HUD & Ambient Window
@@ -1427,8 +1440,20 @@ class LyricsWidget: NSObject, PKWidget {
             karaokeView.progress = 0.0
 
         case .beforeFirstLine:
-            newText = "\(prefix)\(formatLineText(snapshot.upcomingLine?.text ?? ""))"
-            upcoming = activeLines.count > 1 ? formatLineText(activeLines[1].text) : ""
+            let rawUpcoming = snapshot.upcomingLine?.text ?? ""
+            let displayUpcoming = (enableRomanize && Romanizer.containsNonLatin(rawUpcoming))
+                ? Romanizer.romanize(rawUpcoming)
+                : rawUpcoming
+            newText = "\(prefix)\(formatLineText(displayUpcoming))"
+            
+            let rawSecond = activeLines.count > 1 ? activeLines[1].text : ""
+            if enableRomanize && Romanizer.containsNonLatin(rawUpcoming) {
+                upcoming = rawUpcoming
+            } else if enableRomanize && Romanizer.containsNonLatin(rawSecond) {
+                upcoming = formatLineText(Romanizer.romanize(rawSecond))
+            } else {
+                upcoming = activeLines.count > 1 ? formatLineText(rawSecond) : ""
+            }
             previousLineText = ""
             currentLineWords = []
             currentLineStartTimestamp = snapshot.upcomingLine?.timestamp ?? 0
@@ -1436,11 +1461,23 @@ class LyricsWidget: NSObject, PKWidget {
             karaokeView.progress = 0.0
 
         case .inLyrics:
-            let text = snapshot.currentLine?.text.isEmpty == true
+            let rawText = snapshot.currentLine?.text.isEmpty == true
                 ? "♪ (instrumental)"
                 : snapshot.currentLine?.text ?? ""
-            newText = "\(prefix)\(formatLineText(text))"
-            upcoming = snapshot.upcomingLine?.text ?? ""
+            
+            let hasNonLatin = Romanizer.containsNonLatin(rawText)
+            let displayMainText = (enableRomanize && hasNonLatin) ? Romanizer.romanize(rawText) : rawText
+            newText = "\(prefix)\(formatLineText(displayMainText))"
+            
+            let rawUpcoming = snapshot.upcomingLine?.text ?? ""
+            if enableRomanize && hasNonLatin {
+                // When Main Line is Romanized for singing, Sub Line shows the original native script (Hangul/Kanji)
+                upcoming = rawText
+            } else if enableRomanize && Romanizer.containsNonLatin(rawUpcoming) {
+                upcoming = Romanizer.romanize(rawUpcoming)
+            } else {
+                upcoming = rawUpcoming
+            }
 
             // Calculate precise line timestamps
             let startTs = snapshot.currentLine?.timestamp ?? elapsed
@@ -1453,29 +1490,29 @@ class LyricsWidget: NSObject, PKWidget {
                 elapsed: elapsed,
                 lineStart: startTs,
                 lineEnd: endTs,
-                lineText: text,
+                lineText: displayMainText,
                 explicitWords: currentLineWords
             )
             karaokeView.progress = CGFloat(progress)
 
-            // Romanization on Line 2 if Asian/non-Latin script detected
-            if enableRomanize && Romanizer.containsNonLatin(text) {
-                let romaji = Romanizer.romanize(text)
-                if romaji != text {
-                    upcoming = "Romaji • " + romaji
-                }
-            }
-
             if let idx = snapshot.currentIndex, idx > 0 {
-                previousLineText = activeLines[idx - 1].text
+                let prevRaw = activeLines[idx - 1].text
+                previousLineText = (enableRomanize && Romanizer.containsNonLatin(prevRaw)) ? Romanizer.romanize(prevRaw) : prevRaw
             } else {
                 previousLineText = ""
             }
 
         case .afterLastLine:
-            newText = "\(prefix)\(formatLineText(snapshot.currentLine?.text ?? ""))"
+            let rawLast = snapshot.currentLine?.text ?? ""
+            let displayLast = (enableRomanize && Romanizer.containsNonLatin(rawLast)) ? Romanizer.romanize(rawLast) : rawLast
+            newText = "\(prefix)\(formatLineText(displayLast))"
             upcoming = ""
-            previousLineText = activeLines.count > 1 ? activeLines[activeLines.count - 2].text : ""
+            if activeLines.count > 1 {
+                let prevRaw = activeLines[activeLines.count - 2].text
+                previousLineText = (enableRomanize && Romanizer.containsNonLatin(prevRaw)) ? Romanizer.romanize(prevRaw) : prevRaw
+            } else {
+                previousLineText = ""
+            }
             currentLineWords = []
             karaokeView.progress = 1.0
         }
