@@ -16,9 +16,9 @@ final class AppleScriptBackend {
 
     // MARK: - Configuration
 
-    /// How often to poll, in seconds. 1s gives near-real-time detection
+    /// How often to poll, in seconds. 0.75s gives ultra-tight real-time detection
     /// without excessive CPU overhead.
-    var pollingInterval: TimeInterval = 1.0
+    var pollingInterval: TimeInterval = 0.75
 
     // MARK: - State
 

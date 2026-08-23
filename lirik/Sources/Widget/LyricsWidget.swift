@@ -106,6 +106,8 @@ class LyricsWidget: NSObject, PKWidget {
     private var currentLineWords: [LRCWord] = []
     private var currentPreviousLineText: String = ""
     private var loadedArtworkImage: NSImage? = nil
+    private var lastRenderedLineIndex: Int? = nil
+    private var lastRenderedPositionState: LRCPositionState? = nil
 
     /// Track info display
     private var trackInfoVisibleUntil: Date?
@@ -319,11 +321,11 @@ class LyricsWidget: NSObject, PKWidget {
         }
     }
 
-    // MARK: - High-Frequency Smooth Karaoke Progress Timer (30 FPS)
+    // MARK: - High-Frequency Smooth Karaoke Progress Timer (60 FPS)
 
     private func startSmoothKaraokeTimer() {
         stopSmoothKaraokeTimer()
-        karaokeSmoothTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+        karaokeSmoothTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.tickKaraokeProgress()
             }
@@ -357,30 +359,33 @@ class LyricsWidget: NSObject, PKWidget {
             let nextWordStart = (activeWordIndex + 1 < explicitWords.count)
                 ? explicitWords[activeWordIndex + 1].timestamp
                 : lineEnd
-            let wordDuration = max(0.15, nextWordStart - currentWordStart)
+            let wordDuration = max(0.10, nextWordStart - currentWordStart)
             let rawWordFraction = min(1.0, max(0.0, (elapsed - currentWordStart) / wordDuration))
 
-            // Smooth cosine S-curve easing on individual word fill
-            let easedWordFraction = (1.0 - cos(rawWordFraction * .pi)) / 2.0
+            // Responsive cubic ease-out for immediate vocal response without initial lag
+            let easedWordFraction = 1.0 - pow(1.0 - rawWordFraction, 2.0)
             return max(0.0, min(1.0, baseFraction + (easedWordFraction / totalWords)))
         }
 
-        // 2. Standard LRC: Apple Music Natural Vocal Cadence Model
-        // The singing portion occupies the first 82-88% of line interval, leaving natural breath pause before next line
-        let breathDuration = min(0.65, max(0.2, totalLineDuration * 0.15))
-        let vocalDuration = max(0.3, totalLineDuration - breathDuration)
+        // 2. Standard LRC: Dynamic Phonetic Vocal Cadence Model
+        let words = lineText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
+        let totalChars = max(1, words.reduce(0) { $0 + $1.count })
+        let wordCount = Double(words.count)
+
+        // Dynamic phonetic delivery rate based on syllable density & tempo
+        let rawPhoneticTime = (wordCount * 0.28) + (Double(totalChars) * 0.045)
+        let minBreath = min(1.2, max(0.20, totalLineDuration * 0.10))
+        let maxVocalTime = max(0.4, totalLineDuration - minBreath)
+        let vocalDuration = min(maxVocalTime, max(totalLineDuration * 0.72, rawPhoneticTime))
 
         let timeIntoLine = elapsed - lineStart
         if timeIntoLine >= vocalDuration {
-            return 1.0 // Fully highlighted during musical breath before next line
+            return 1.0
         }
 
         let rawLinearFraction = timeIntoLine / vocalDuration
 
-        // Syllable/word-weighted progressive fill
-        let words = lineText.components(separatedBy: " ").filter { !$0.isEmpty }
         if words.count > 1 {
-            let totalChars = max(1, words.reduce(0) { $0 + $1.count })
             var cumulativeWeights: [Double] = []
             var runningCharCount = 0
             for word in words {
@@ -395,14 +400,15 @@ class LyricsWidget: NSObject, PKWidget {
 
             let prevWeight = activeIdx > 0 ? cumulativeWeights[activeIdx - 1] : 0.0
             let currentWeight = cumulativeWeights[activeIdx]
-            let wordSpan = max(0.01, currentWeight - prevWeight)
+            let wordSpan = max(0.001, currentWeight - prevWeight)
             let subFraction = max(0.0, min(1.0, (rawLinearFraction - prevWeight) / wordSpan))
 
-            let easedSub = (1.0 - cos(subFraction * .pi)) / 2.0
+            // Responsive vocal progression without sluggish cosine onset
+            let easedSub = 1.0 - pow(1.0 - subFraction, 1.8)
             let interpolated = prevWeight + (easedSub * wordSpan)
             return max(0.0, min(1.0, interpolated))
         } else {
-            let eased = (1.0 - cos(rawLinearFraction * .pi)) / 2.0
+            let eased = 1.0 - pow(1.0 - rawLinearFraction, 1.8)
             return max(0.0, min(1.0, eased))
         }
     }
@@ -414,14 +420,26 @@ class LyricsWidget: NSObject, PKWidget {
         let elapsedDelta = now.timeIntervalSince(lastPlaybackTimestamp)
         let effectiveElapsed = max(0.0, lastKnownElapsed + elapsedDelta + currentTrackOffset)
 
-        // 1. Guard against Intro Phase (before the first line starts singing)
+        // 1. Real-time 60 FPS line transition check:
+        // Switch line immediately the exact frame its timestamp is reached!
+        if case .synced(_, _, let lines) = self.uiState, !lines.isEmpty {
+            let snapshot = LRCSyncEngine.resolve(elapsedTime: effectiveElapsed, lines: lines)
+            if snapshot.currentIndex != self.lastRenderedLineIndex || snapshot.positionState != self.lastRenderedPositionState {
+                self.lastRenderedLineIndex = snapshot.currentIndex
+                self.lastRenderedPositionState = snapshot.positionState
+                self.renderSyncSnapshot(snapshot, elapsed: effectiveElapsed, isPaused: false)
+                return
+            }
+        }
+
+        // 2. Guard against Intro Phase (before the first line starts singing)
         if let firstLine = activeLines.first, effectiveElapsed < firstLine.timestamp {
             karaokeView.progress = 0.0
             pitchMelodyVisualizer.setPlaying(false)
             return
         }
 
-        // 2. Guard against gap between line start
+        // 3. Guard against gap between line start
         if effectiveElapsed < currentLineStartTimestamp {
             karaokeView.progress = 0.0
             pitchMelodyVisualizer.setPlaying(false)
@@ -817,13 +835,14 @@ class LyricsWidget: NSObject, PKWidget {
                 let currentExtrapolated = self.lastKnownElapsed + now.timeIntervalSince(self.lastPlaybackTimestamp)
                 let diff = elapsed - currentExtrapolated
 
-                // If gap is large (user seeked or track changed), snap immediately
-                if abs(diff) > 1.25 || diff < -1.0 {
+                // If gap is significant (user seeked or track jumped), snap immediately
+                if abs(diff) > 0.75 || diff < -0.6 {
                     self.lastKnownElapsed = elapsed
                     self.lastPlaybackTimestamp = now
+                    self.lastRenderedLineIndex = nil
                 } else {
-                    // Smooth Phase-Locked Loop: gently nudge the anchor without jumping backwards or jerking
-                    let adjusted = currentExtrapolated + (diff * 0.12)
+                    // Smooth Phase-Locked Loop: responsive anchor tracking without jitter
+                    let adjusted = currentExtrapolated + (diff * 0.45)
                     self.lastKnownElapsed = adjusted
                     self.lastPlaybackTimestamp = now
                 }
@@ -1011,6 +1030,8 @@ class LyricsWidget: NSObject, PKWidget {
 
     private func loadLyrics(for track: NowPlayingTrack, expectedKey: String, forceRefresh: Bool) {
         uiState = .loading(title: track.title, artist: track.artist)
+        self.lastRenderedLineIndex = nil
+        self.lastRenderedPositionState = nil
         self.currentTrackOffset = self.offlineVault.getOffset(for: expectedKey)
 
         // 1. Check Local .lrc Files in ~/Music / ~/Downloads (Feature 6)
@@ -1386,6 +1407,9 @@ class LyricsWidget: NSObject, PKWidget {
     }
 
     private func renderSyncSnapshot(_ snapshot: LRCSyncSnapshot, elapsed: TimeInterval, isPaused: Bool) {
+        self.lastRenderedLineIndex = snapshot.currentIndex
+        self.lastRenderedPositionState = snapshot.positionState
+
         if let (title, artist) = trackInfoComponents() {
             karaokeView.activeColor = resolveHighlightColor(isPaused: false)
             karaokeView.font = NSFont.boldSystemFont(ofSize: 11)
