@@ -347,7 +347,8 @@ class LyricsWidget: NSObject, PKWidget {
         guard lineEnd > lineStart else { return 1.0 }
         if elapsed <= lineStart { return 0.0 }
 
-        let totalLineDuration = lineEnd - lineStart
+        let rawLineDuration = lineEnd - lineStart
+        let words = lineText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
 
         // 1. Enhanced LRC with explicit word/syllable timestamps
         if !explicitWords.isEmpty {
@@ -359,24 +360,25 @@ class LyricsWidget: NSObject, PKWidget {
             let nextWordStart = (activeWordIndex + 1 < explicitWords.count)
                 ? explicitWords[activeWordIndex + 1].timestamp
                 : lineEnd
-            let wordDuration = max(0.10, nextWordStart - currentWordStart)
+            let wordDuration = max(0.08, nextWordStart - currentWordStart)
             let rawWordFraction = min(1.0, max(0.0, (elapsed - currentWordStart) / wordDuration))
 
-            // Responsive cubic ease-out for immediate vocal response without initial lag
-            let easedWordFraction = 1.0 - pow(1.0 - rawWordFraction, 2.0)
-            return max(0.0, min(1.0, baseFraction + (easedWordFraction / totalWords)))
+            return max(0.0, min(1.0, baseFraction + (rawWordFraction / totalWords)))
         }
 
-        // 2. Standard LRC: Dynamic Phonetic Vocal Cadence Model
-        let words = lineText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
-        let totalChars = max(1, words.reduce(0) { $0 + $1.count })
-        let wordCount = Double(words.count)
+        // 2. Standard LRC: Strict Proportional Vocal Flow Model
+        // Pace strictly follows the audio interval of the line so it never rushes or lags behind tempo.
+        let effectiveLineDuration: Double
+        if rawLineDuration > 8.5 {
+            let estimatedMaxSinging = max(3.5, Double(max(1, words.count)) * 1.25)
+            effectiveLineDuration = min(rawLineDuration, estimatedMaxSinging)
+        } else {
+            effectiveLineDuration = rawLineDuration
+        }
 
-        // Dynamic phonetic delivery rate based on syllable density & tempo
-        let rawPhoneticTime = (wordCount * 0.28) + (Double(totalChars) * 0.045)
-        let minBreath = min(1.2, max(0.20, totalLineDuration * 0.10))
-        let maxVocalTime = max(0.4, totalLineDuration - minBreath)
-        let vocalDuration = min(maxVocalTime, max(totalLineDuration * 0.72, rawPhoneticTime))
+        // Natural breath pause at the very end (5-8% of line)
+        let breathDuration = min(0.35, max(0.10, effectiveLineDuration * 0.06))
+        let vocalDuration = max(0.3, effectiveLineDuration - breathDuration)
 
         let timeIntoLine = elapsed - lineStart
         if timeIntoLine >= vocalDuration {
@@ -385,32 +387,33 @@ class LyricsWidget: NSObject, PKWidget {
 
         let rawLinearFraction = timeIntoLine / vocalDuration
 
-        if words.count > 1 {
-            var cumulativeWeights: [Double] = []
-            var runningCharCount = 0
-            for word in words {
-                runningCharCount += word.count
-                cumulativeWeights.append(Double(runningCharCount) / Double(totalChars))
-            }
-
-            var activeIdx = 0
-            while activeIdx < cumulativeWeights.count - 1 && rawLinearFraction > cumulativeWeights[activeIdx] {
-                activeIdx += 1
-            }
-
-            let prevWeight = activeIdx > 0 ? cumulativeWeights[activeIdx - 1] : 0.0
-            let currentWeight = cumulativeWeights[activeIdx]
-            let wordSpan = max(0.001, currentWeight - prevWeight)
-            let subFraction = max(0.0, min(1.0, (rawLinearFraction - prevWeight) / wordSpan))
-
-            // Responsive vocal progression without sluggish cosine onset
-            let easedSub = 1.0 - pow(1.0 - subFraction, 1.8)
-            let interpolated = prevWeight + (easedSub * wordSpan)
-            return max(0.0, min(1.0, interpolated))
-        } else {
-            let eased = 1.0 - pow(1.0 - rawLinearFraction, 1.8)
-            return max(0.0, min(1.0, eased))
+        guard words.count > 1 else {
+            return max(0.0, min(1.0, rawLinearFraction))
         }
+
+        // Weight each word by character count + phonetic base weight
+        let wordWeights = words.map { Double($0.count) + 1.2 }
+        let totalWeight = wordWeights.reduce(0.0, +)
+
+        var cumulativeWeights: [Double] = []
+        var runningWeight = 0.0
+        for w in wordWeights {
+            runningWeight += w
+            cumulativeWeights.append(runningWeight / totalWeight)
+        }
+
+        var activeIdx = 0
+        while activeIdx < cumulativeWeights.count - 1 && rawLinearFraction > cumulativeWeights[activeIdx] {
+            activeIdx += 1
+        }
+
+        let prevWeight = activeIdx > 0 ? cumulativeWeights[activeIdx - 1] : 0.0
+        let currentWeight = cumulativeWeights[activeIdx]
+        let wordSpan = max(0.001, currentWeight - prevWeight)
+        let subFraction = max(0.0, min(1.0, (rawLinearFraction - prevWeight) / wordSpan))
+
+        let interpolated = prevWeight + (subFraction * wordSpan)
+        return max(0.0, min(1.0, interpolated))
     }
 
     private func tickKaraokeProgress() {
