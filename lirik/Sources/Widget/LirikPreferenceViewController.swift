@@ -62,7 +62,7 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
     private let playerPopUp = NSPopUpButton()
     private let adAudioPopUp = NSPopUpButton()
 
-    private let karaokeGlowCheckbox = NSButton(checkboxWithTitle: "Apple Music Sing syllable karaoke gradient glow", target: nil, action: nil)
+    private let karaokeGlowCheckbox = NSButton(checkboxWithTitle: "Enable progressive karaoke character sweep (default: Apple Music Line Focus)", target: nil, action: nil)
     private let pitchVisualizerCheckbox = NSButton(checkboxWithTitle: "Show live vocal pitch & melody meter (Feature 7)", target: nil, action: nil)
     private let menuBarCheckbox = NSButton(checkboxWithTitle: "Show live lyrics in macOS Menu Bar ticker (Feature 4)", target: nil, action: nil)
     private let upNextCheckbox = NSButton(checkboxWithTitle: "Show 'Up Next' outro countdown & transition preview", target: nil, action: nil)
@@ -360,7 +360,7 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
             adAudioPopUp.selectItem(at: 0)
         }
 
-        let karaokeGlow = defaults.object(forKey: Self.keyEnableKaraokeGlow) as? Bool ?? true
+        let karaokeGlow = defaults.object(forKey: Self.keyEnableKaraokeGlow) as? Bool ?? false
         karaokeGlowCheckbox.state = karaokeGlow ? .on : .off
 
         let pitchVisualizer = defaults.object(forKey: Self.keyShowPitchVisualizer) as? Bool ?? true

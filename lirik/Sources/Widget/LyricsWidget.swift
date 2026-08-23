@@ -1434,6 +1434,9 @@ class LyricsWidget: NSObject, PKWidget {
         let showPitch = defaults.object(forKey: LirikPreferenceViewController.keyShowPitchVisualizer) as? Bool ?? true
         let enableRomanize = defaults.object(forKey: LirikPreferenceViewController.keyEnableRomanization) as? Bool ?? true
         let enableUpNext = defaults.object(forKey: LirikPreferenceViewController.keyEnableUpNextCountdown) as? Bool ?? true
+        let enableKaraokeGlow = defaults.object(forKey: LirikPreferenceViewController.keyEnableKaraokeGlow) as? Bool ?? false
+        let hasWordTimings = snapshot.currentLine?.words.isEmpty == false
+        karaokeView.isLineFocusMode = !(enableKaraokeGlow || hasWordTimings)
 
         equalizerView.isHidden = !showEq
         pitchMelodyVisualizer.isHidden = !showPitch

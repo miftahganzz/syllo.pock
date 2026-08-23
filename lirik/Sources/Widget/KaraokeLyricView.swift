@@ -66,6 +66,16 @@ final class KaraokeLyricView: NSView {
 
     var enableGlow: Bool = true
 
+    /// When true, renders active line fully highlighted in bold glowing color (Apple Music Desktop / Spotify Standard).
+    /// When false, renders progressive karaoke character-by-character wipe.
+    var isLineFocusMode: Bool = true {
+        didSet {
+            if oldValue != isLineFocusMode {
+                needsDisplay = true
+            }
+        }
+    }
+
     // Layout caching to prevent 60fps string measurement CPU spikes
     private var cachedTextSize: NSSize?
     private var cachedForString: String = ""
@@ -128,9 +138,31 @@ final class KaraokeLyricView: NSView {
         }
 
         let textRect = NSRect(x: textX, y: textY, width: min(bounds.width - textX, textSize.width + 4), height: textSize.height)
+
+        // 1. Apple Music Active Line Focus Mode (Clean, Frame-Perfect & Natural)
+        if isLineFocusMode || progress >= 0.999 {
+            let shadow = NSShadow()
+            if enableGlow {
+                shadow.shadowColor = activeColor.withAlphaComponent(0.75)
+                shadow.shadowBlurRadius = 5.5
+                shadow.shadowOffset = .zero
+            }
+
+            let attrsActive: [NSAttributedString.Key: Any] = [
+                .font: font,
+                .foregroundColor: activeColor,
+                .shadow: shadow,
+                .paragraphStyle: paraStyle
+            ]
+
+            str.draw(in: textRect, withAttributes: attrsActive)
+            return
+        }
+
+        // 2. Inactive Background Text (Dimmed)
         str.draw(in: textRect, withAttributes: attrsInactive)
 
-        // 2. Progressive Word & Character Accurate Karaoke Glow & Fill Wipe
+        // 3. Progressive Word & Character Accurate Karaoke Glow & Fill Wipe
         guard progress > 0.001 else { return }
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
@@ -161,8 +193,8 @@ final class KaraokeLyricView: NSView {
         // Active highlighted text with subtle vibrant glow
         let shadow = NSShadow()
         if enableGlow {
-            shadow.shadowColor = activeColor.withAlphaComponent(0.70)
-            shadow.shadowBlurRadius = 5.0
+            shadow.shadowColor = activeColor.withAlphaComponent(0.75)
+            shadow.shadowBlurRadius = 5.5
             shadow.shadowOffset = .zero
         }
 
