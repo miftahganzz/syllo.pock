@@ -930,6 +930,13 @@ class LyricsWidget: NSObject, PKWidget {
             name: Notification.Name("io.github.ridhaaf.lirik.heartButtonChanged"),
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onHighlightStylePreferenceChanged),
+            name: Notification.Name("io.github.ridhaaf.lirik.highlightStyleChanged"),
+            object: nil
+        )
     }
 
     @objc private func onPitchVisualizerPreferenceChanged() {
@@ -975,6 +982,16 @@ class LyricsWidget: NSObject, PKWidget {
             } else {
                 self.albumArtButton.isHidden = true
             }
+        }
+    }
+
+    @objc private func onHighlightStylePreferenceChanged() {
+        let defaults = UserDefaults.standard
+        let styleStr = defaults.string(forKey: LirikPreferenceViewController.keyLyricHighlightStyle) ?? "lineFocus"
+        let style = LyricHighlightStyle(rawValue: styleStr) ?? .lineFocus
+        DispatchQueue.main.async { [weak self] in
+            self?.karaokeView.highlightStyle = style
+            self?.karaokeView.needsDisplay = true
         }
     }
 
@@ -1434,9 +1451,13 @@ class LyricsWidget: NSObject, PKWidget {
         let showPitch = defaults.object(forKey: LirikPreferenceViewController.keyShowPitchVisualizer) as? Bool ?? true
         let enableRomanize = defaults.object(forKey: LirikPreferenceViewController.keyEnableRomanization) as? Bool ?? true
         let enableUpNext = defaults.object(forKey: LirikPreferenceViewController.keyEnableUpNextCountdown) as? Bool ?? true
-        let enableKaraokeGlow = defaults.object(forKey: LirikPreferenceViewController.keyEnableKaraokeGlow) as? Bool ?? false
-        let hasWordTimings = snapshot.currentLine?.words.isEmpty == false
-        karaokeView.isLineFocusMode = !(enableKaraokeGlow || hasWordTimings)
+        let styleStr = defaults.string(forKey: LirikPreferenceViewController.keyLyricHighlightStyle) ?? "lineFocus"
+        if let style = LyricHighlightStyle(rawValue: styleStr) {
+            karaokeView.highlightStyle = style
+        } else {
+            let enableKaraokeGlow = defaults.object(forKey: LirikPreferenceViewController.keyEnableKaraokeGlow) as? Bool ?? false
+            karaokeView.highlightStyle = enableKaraokeGlow ? .smoothSweep : .lineFocus
+        }
 
         equalizerView.isHidden = !showEq
         pitchMelodyVisualizer.isHidden = !showPitch

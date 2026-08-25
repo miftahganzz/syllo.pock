@@ -45,6 +45,7 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
     static let keyEnableCanvas = "io.github.ridhaaf.lirik.enableCanvas"
     static let keyLyricAnimation = "io.github.ridhaaf.lirik.lyricAnimation"
     static let keyEnableKaraokeGlow = "io.github.ridhaaf.lirik.enableKaraokeGlow"
+    static let keyLyricHighlightStyle = "io.github.ridhaaf.lirik.lyricHighlightStyle"
     static let keyEnableRomanization = "io.github.ridhaaf.lirik.enableRomanization"
     static let keyShowHeartButton = "io.github.ridhaaf.lirik.showHeartButton"
     static let keyEnableGestures = "io.github.ridhaaf.lirik.enableGestures"
@@ -56,6 +57,7 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
 
     private let dualLineControl = NSSegmentedControl(labels: ["2-Line Karaoke", "1-Line Compact"], trackingMode: .selectOne, target: nil, action: nil)
     private let fontSizeControl = NSSegmentedControl(labels: ["Small", "Medium", "Large"], trackingMode: .selectOne, target: nil, action: nil)
+    private let stylePopUp = NSPopUpButton()
     private let colorPopUp = NSPopUpButton()
     private let animationPopUp = NSPopUpButton()
     private let alignmentControl = NSSegmentedControl(labels: ["Left Aligned", "Center Aligned"], trackingMode: .selectOne, target: nil, action: nil)
@@ -106,7 +108,17 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         let fontStackView = createSection(title: "Lyric Text Size:", control: fontSizeControl)
         mainStackView.addArrangedSubview(fontStackView)
 
-        // 4. Highlight Color
+        // 4. Highlight Style
+        stylePopUp.addItems(withTitles: [
+            "Apple Music Line Focus (Active Line Glow)",
+            "Word Snap (Seblok Kata Utuh)",
+            "Word Pill (Kapsul Kata Bercahaya)",
+            "Smooth Karaoke Sweep (Wipe Progresif)"
+        ])
+        let styleStackView = createSection(title: "Lyric Highlight Style:", control: stylePopUp)
+        mainStackView.addArrangedSubview(styleStackView)
+
+        // 5. Highlight Color
         colorPopUp.addItems(withTitles: [
             "Auto (Album Adaptive)",
             "White",
@@ -206,6 +218,9 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
 
         fontSizeControl.target = self
         fontSizeControl.action = #selector(onFontSizeChanged)
+
+        stylePopUp.target = self
+        stylePopUp.action = #selector(onStyleChanged)
 
         colorPopUp.target = self
         colorPopUp.action = #selector(onColorChanged)
@@ -313,6 +328,14 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
             fontSizeControl.selectedSegment = 2
         } else {
             fontSizeControl.selectedSegment = 1
+        }
+
+        let style = defaults.string(forKey: Self.keyLyricHighlightStyle) ?? "lineFocus"
+        switch style {
+        case "wordBlock": stylePopUp.selectItem(at: 1)
+        case "wordPill": stylePopUp.selectItem(at: 2)
+        case "smoothSweep": stylePopUp.selectItem(at: 3)
+        default: stylePopUp.selectItem(at: 0)
         }
 
         let color = defaults.string(forKey: Self.keyHighlightColor) ?? "album"
@@ -452,6 +475,18 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         UserDefaults.standard.set(size, forKey: Self.keyFontSize)
     }
 
+    @objc private func onStyleChanged() {
+        let style: String
+        switch stylePopUp.indexOfSelectedItem {
+        case 1: style = "wordBlock"
+        case 2: style = "wordPill"
+        case 3: style = "smoothSweep"
+        default: style = "lineFocus"
+        }
+        UserDefaults.standard.set(style, forKey: Self.keyLyricHighlightStyle)
+        NotificationCenter.default.post(name: Notification.Name("io.github.ridhaaf.lirik.highlightStyleChanged"), object: nil)
+    }
+
     @objc private func onColorChanged() {
         let color: String
         switch colorPopUp.indexOfSelectedItem {
@@ -561,6 +596,7 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         defaults.removeObject(forKey: Self.keyHighlightColor)
         defaults.removeObject(forKey: Self.keyLyricAnimation)
         defaults.removeObject(forKey: Self.keyEnableKaraokeGlow)
+        defaults.removeObject(forKey: Self.keyLyricHighlightStyle)
         defaults.removeObject(forKey: Self.keyShowPitchVisualizer)
         defaults.removeObject(forKey: Self.keyEnableMenuBarLyrics)
         defaults.removeObject(forKey: Self.keyEnableUpNextCountdown)
