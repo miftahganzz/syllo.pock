@@ -137,14 +137,21 @@ Syllo features a modern grouped card preference interface built with **100% nati
 2. Open the `.dmg` file and double-click **`Install Syllo.app`**.
 3. Click **Install Syllo**. The installer will automatically copy the widget, clear Gatekeeper quarantine, and refresh Pock for you!
 
-#### Option B: Manual Installation (ZIP)
-1. Download **`syllo-ventura13.zip`** from [Releases](https://github.com/miftahganzz/syllo.pock/releases).
-2. Unzip and copy `Syllo.pock` to `~/Library/Application Support/Pock/Widgets/`.
-3. In Terminal, clear macOS quarantine:
+#### Option B: Manual Installation via Terminal (ZIP)
+1. Download **`syllo-ventura13.zip`** (or `Syllo.pock`) from [Releases](https://github.com/miftahganzz/syllo.pock/releases).
+2. Unzip the file in your `~/Downloads` folder.
+3. Open **Terminal** and remove the Gatekeeper quarantine attribute:
    ```bash
-   xattr -cr ~/Library/Application\ Support/Pock/Widgets/Syllo.pock
+   xattr -cr ~/Downloads/Syllo.pock
    ```
-4. Restart Pock.
+4. Copy `Syllo.pock` to Pock's widgets directory:
+   ```bash
+   cp -R ~/Downloads/Syllo.pock ~/Library/Application\ Support/Pock/Widgets/
+   ```
+5. Restart Pock:
+   ```bash
+   killall Pock 2>/dev/null; sleep 1; open -a Pock
+   ```
 
 ### Step 3: Add to Touch Bar Layout
 1. Open **Pock Preferences** (⌘,).
