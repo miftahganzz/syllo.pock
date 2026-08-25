@@ -1,7 +1,7 @@
-# 🎵 Lirik (Enhanced Edition) — Apple-Style Synced Lyrics for macOS
+# 🎵 Syllo — Apple-Style Synced Lyrics for macOS Touch Bar
 
 <p align="center">
-  <img src="assets/demo.jpg" alt="Lirik Touch Bar Demo" width="100%">
+  <img src="assets/demo.jpg" alt="Syllo Touch Bar Demo" width="100%">
 </p>
 
 <p align="center">
@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Plugin%20For-Pock-purple.svg?style=flat-square" alt="Pock Widget">
 </p>
 
-**Lirik (Enhanced Edition)** is a high-performance macOS lyrics companion and Touch Bar widget that delivers real-time, buttery-smooth synchronized lyrics with **Apple Music Sing-style word-by-word karaoke highlighting**.
+**Syllo** is a high-performance macOS lyrics companion and Touch Bar widget that delivers real-time, buttery-smooth synchronized lyrics with **Apple Music Sing-style word-by-word karaoke highlighting**.
 
 Re-engineered from the ground up by **Miftah** for **macOS Ventura 13.0+** (including Sonoma & Sequoia), featuring native integration with **Spotify**, **Apple Music**, **IINA**, **QuickTime Player**, and **VLC**.
 
@@ -23,6 +23,8 @@ Re-engineered from the ground up by **Miftah** for **macOS Ventura 13.0+** (incl
 * **Character & Word-by-Word Progressive Fill:** Smooth real-time horizontal gradient wipe that illuminates each word and syllable in sync with the singer's voice.
 * **Natural Vocal Cadence Model:** Syllable-weighted timing with cosine S-curve easing and natural vocal breath pauses before line transitions.
 * **Phase-Locked Loop (PLL) Audio Clock:** Zero clock jitter, no rubber-banding backwards, and monotonic 60 FPS interpolation.
+* **Multiple Highlight Styles:** Word Snap (whole-word blocks), Apple Music Line Focus, Word Pill (capsule bubbles), or Smooth Sweep.
+* **Smooth Line Transitions:** Spotify-style Slide Up, Smooth Crossfade, Spring Pulse, or Instant.
 
 ### 🎬 Multi-Player & Video Support
 * **Spotify & Apple Music:** Native AppleScript & MediaRemote integration with album art extraction and 1-tap Heart/Like support.
@@ -58,45 +60,39 @@ Re-engineered from the ground up by **Miftah** for **macOS Ventura 13.0+** (incl
 ## 💻 System Requirements
 
 * **macOS:** macOS Ventura 13.0 or later (fully compatible with macOS 13 Ventura, macOS 14 Sonoma, and macOS 15 Sequoia+).
-* **Architecture:** Universal Binary (`arm64` Apple Silicon M1/M2/M3/M4 & `x86_64` Intel MacBooks with Touch Bar).
-* **Host Application:** [Pock](https://pock.app) (v0.9.0 or later).
+* **Architecture:** Universal Binary (`arm64` Apple Silicon + `x86_64` Intel).
+* **Host App:** [Pock](https://pock.app) (v0.9.0 or later).
+* **Supported Players:** Spotify (Free/Premium), Apple Music, IINA (with plugin), QuickTime Player, VLC.
 
 ---
 
-## 📥 Installation Guide
+## 🚀 Installation & Setup
 
 ### Step 1: Install Pock
-If you haven't already, download and install **Pock**:
-👉 **Download Pock**: [https://pock.app](https://pock.app)
-
----
-
-### Step 2: Download & Install Lirik
-1. Download **`lirik-ventura13.zip`** (or `lirik.pock`) from the repository releases.
-2. Unzip the file to your `Downloads` folder.
-3. **Clear macOS Quarantine (Important):**
-   To prevent macOS Gatekeeper from displaying *"lirik.pock is damaged and can't be opened"* or Pock's `error.invalid-bundle`, run this command in **Terminal**:
+1. Download and install **Pock** from [pock.app](https://pock.app) or via Homebrew:
    ```bash
-   xattr -cr ~/Downloads/lirik.pock
+   brew install --cask pock
    ```
-4. Double-click **`lirik.pock`** to install, or copy manually:
+2. Launch Pock and grant required permissions (*Accessibility*, *Automation*, and *Screen Recording* if prompted for visualizers).
+
+### Step 2: Download & Install Syllo
+1. Download **`syllo-ventura13.zip`** (or `Syllo.pock`) from releases.
+2. Unzip the file if needed.
+3. Open **Terminal** and remove quarantine attribute:
    ```bash
-   cp -R ~/Downloads/lirik.pock ~/Library/Application\ Support/Pock/Widgets/
+   xattr -cr ~/Downloads/Syllo.pock
    ```
+4. Copy `Syllo.pock` to Pock widgets folder:
+   ```bash
+   cp -R ~/Downloads/Syllo.pock ~/Library/Application\ Support/Pock/Widgets/
+   ```
+5. Restart Pock (`killall Pock && open /Applications/Pock.app`).
 
----
-
-### Step 3: Enable Widget in Pock
-1. Click the **Pock** icon in your macOS menu bar ➔ **Manage widgets...**
-2. Ensure **Lirik** is enabled (green indicator dot).
-3. Click **Customize Pock...** and drag **Lirik** onto your physical Touch Bar layout.
-
----
-
-### Step 4: macOS Permissions Setup
-When playing a song for the first time:
-* macOS will prompt for **Automation Permission** to control Spotify / Music / System Events. Click **Allow**.
-* If permission was previously denied, go to **System Settings ➔ Privacy & Security ➔ Automation** and ensure **Pock** has permission enabled for your media players.
+### Step 3: Add to Touch Bar Layout
+1. Open **Pock Preferences** (⌘,).
+2. Go to **Widgets Manager** and ensure **Syllo** is enabled (green dot).
+3. Click **Customize Pock...** and drag **Syllo** onto your Touch Bar layout.
+4. Play any song on Spotify or Apple Music!
 
 ---
 
@@ -106,37 +102,37 @@ To compile the standalone Universal Binary (`x86_64` + `arm64`) for macOS Ventur
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/miftahganzz/lirik.git
-cd lirik
+git clone https://github.com/miftahganzz/syllo.git
+cd syllo
 
 # 2. Compile Universal Binary with swiftc
 swiftc -target x86_64-apple-macosx13.0 \
-  -module-name lirik -emit-library \
+  -module-name syllo -emit-library \
   -F /Applications/Pock.app/Contents/Frameworks \
   -framework AppKit -framework Foundation -framework ApplicationServices \
   -framework AVFoundation -framework QuartzCore -framework PockKit -framework TinyConstraints \
   -Xlinker -bundle -Xlinker -rpath -Xlinker @loader_path/../Frameworks \
-  $(find lirik/Sources -name "*.swift") -o /tmp/lirik_x86_64
+  $(find lirik/Sources -name "*.swift") -o /tmp/syllo_x86_64
 
 swiftc -target arm64-apple-macosx13.0 \
-  -module-name lirik -emit-library \
+  -module-name syllo -emit-library \
   -F /Applications/Pock.app/Contents/Frameworks \
   -framework AppKit -framework Foundation -framework ApplicationServices \
   -framework AVFoundation -framework QuartzCore -framework PockKit -framework TinyConstraints \
   -Xlinker -bundle -Xlinker -rpath -Xlinker @loader_path/../Frameworks \
-  $(find lirik/Sources -name "*.swift") -o /tmp/lirik_arm64
+  $(find lirik/Sources -name "*.swift") -o /tmp/syllo_arm64
 
 # 3. Create Universal Binary and bundle
-lipo -create -output dist/lirik.pock/Contents/MacOS/lirik /tmp/lirik_x86_64 /tmp/lirik_arm64
-codesign -f -s - dist/lirik.pock
+lipo -create -output dist/Syllo.pock/Contents/MacOS/syllo /tmp/syllo_x86_64 /tmp/syllo_arm64
+codesign -f -s - dist/Syllo.pock
 ```
 
 ---
 
 ## 👥 Contributors & Credits
 
-* **Enhanced Edition & Recode**: **Miftah** ([@miftahganzz](https://github.com/miftahganzz)) — Word-by-word Apple-style karaoke, IINA native IPC bridge, Phase-Locked Loop clock sync, Multi-tier smart search, Desktop HUD & Ambient mode.
-* **Original Creator**: [@RidhaAF](https://github.com/RidhaAF) — Initial concept & core Pock widget architecture.
+* **Syllo (Enhanced Edition & Recode)**: **Miftah** ([@miftahganzz](https://github.com/miftahganzz)) — Word-by-word Apple-style karaoke, IINA native IPC bridge, Phase-Locked Loop clock sync, Multi-tier smart search, Desktop HUD & Ambient mode, bilingual UI, highlight and animation engine.
+* **Original Creator of Lirik**: [@RidhaAF](https://github.com/RidhaAF) — Initial concept & core Pock widget architecture.
 * **Contributor**: [@rizkifdh](https://github.com/rizkifdh) — Permission fix, album artwork thumbnail.
 
 ---
@@ -145,4 +141,4 @@ codesign -f -s - dist/lirik.pock
 
 This project is open-source and licensed under the **[MIT License](LICENSE)**:
 * Original Work © 2024 Ridha Ahmad Firdaus
-* Enhanced Edition © 2026 Miftah
+* Syllo (Enhanced Edition) © 2026 Miftah

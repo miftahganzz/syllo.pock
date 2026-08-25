@@ -27,8 +27,8 @@ class LyricsWidget: NSObject, PKWidget {
 
     // MARK: - PKWidget Protocol Properties
 
-    static var identifier: String = "io.github.ridhaaf.lirik"
-    var customizationLabel: String = "Lirik - Synced Lyrics"
+    static var identifier: String = "syllo.pock.widget"
+    var customizationLabel: String = "Syllo - Synced Lyrics"
     var view: NSView!
 
     var imageForCustomization: NSImage {
@@ -52,7 +52,7 @@ class LyricsWidget: NSObject, PKWidget {
             .font: NSFont.boldSystemFont(ofSize: 12),
             .foregroundColor: NSColor.labelColor
         ]
-        NSString("Lirik").draw(at: NSPoint(x: 20, y: 2), withAttributes: attrs)
+        NSString("Syllo").draw(at: NSPoint(x: 20, y: 2), withAttributes: attrs)
 
         image.unlockFocus()
         image.isTemplate = true
@@ -62,9 +62,9 @@ class LyricsWidget: NSObject, PKWidget {
     // MARK: - PKWidgetPreference link for Pock Widgets Manager
 
     @objc var hasPreferencesView: Bool { return true }
-    @objc var preferenceClass: PKWidgetPreference.Type? { return LirikPreferenceViewController.self }
-    @objc var preferenceView: PKWidgetPreference? { return LirikPreferenceViewController() }
-    @objc var preferences: PKWidgetPreference? { return LirikPreferenceViewController() }
+    @objc var preferenceClass: PKWidgetPreference.Type? { return SylloPreferenceViewController.self }
+    @objc var preferenceView: PKWidgetPreference? { return SylloPreferenceViewController() }
+    @objc var preferences: PKWidgetPreference? { return SylloPreferenceViewController() }
 
     // MARK: - UI Components
 
@@ -266,7 +266,7 @@ class LyricsWidget: NSObject, PKWidget {
         // Apple Music Sing Karaoke View
         karaokeView.font = NSFont.boldSystemFont(ofSize: 11)
         karaokeView.activeColor = .white
-        karaokeView.text = "Lirik"
+        karaokeView.text = "Syllo"
         karaokeView.heightAnchor.constraint(equalToConstant: 16).isActive = true
         karaokeView.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
@@ -634,6 +634,7 @@ class LyricsWidget: NSObject, PKWidget {
 
         let textToCopy = karaokeView.text.replacingOccurrences(of: "❙❙ ", with: "").replacingOccurrences(of: "⏸ ", with: "").trimmingCharacters(in: .whitespaces)
         guard !textToCopy.isEmpty,
+              textToCopy != "Syllo",
               textToCopy != "Lirik",
               textToCopy != "Fetching lyrics...",
               textToCopy != "No track playing",
@@ -821,7 +822,7 @@ class LyricsWidget: NSObject, PKWidget {
                 self.equalizerView.setPlaying(false)
                 self.pitchMelodyVisualizer.setPlaying(false)
                 FloatingLyricsHUD.shared.setVideoURL(nil)
-                FloatingLyricsHUD.shared.update(current: "No track playing", next: "", title: "Lirik", artist: "", progress: 0, lineProgress: 0, artwork: nil, highlightColor: nil, isPlaying: false)
+                FloatingLyricsHUD.shared.update(current: "No track playing", next: "", title: "Syllo", artist: "", progress: 0, lineProgress: 0, artwork: nil, highlightColor: nil, isPlaying: false)
             }
         }
 
@@ -1204,7 +1205,7 @@ class LyricsWidget: NSObject, PKWidget {
     private func updateUI() {
         switch uiState {
         case .noTrackPlaying:
-            karaokeView.text = "Lirik"
+            karaokeView.text = "Syllo"
             karaokeView.activeColor = .secondaryLabelColor
             karaokeView.progress = 0.0
             nextLineLabel.stringValue = "No track playing"

@@ -7,19 +7,19 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Lirik</string>
+	<string>Syllo</string>
 	<key>CFBundleExecutable</key>
-	<string>lirik</string>
+	<string>syllo</string>
 	<key>CFBundleIdentifier</key>
-	<string>io.github.ridhaaf.lirik</string>
+	<string>syllo.pock.widget</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>lirik</string>
+	<string>Syllo</string>
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>2.0 (Enhanced)</string>
+	<string>2.0</string>
 	<key>CFBundleSupportedPlatforms</key>
 	<array>
 		<string>MacOSX</string>
@@ -45,12 +45,12 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>Lirik requires access to Spotify and Apple Music to display real-time lyrics on your Touch Bar.</string>
+	<string>Syllo requires access to Spotify and Apple Music to display real-time lyrics on your Touch Bar.</string>
 	<key>NSPrincipalClass</key>
-	<string>lirik.LirikWidget</string>
+	<string>syllo.SylloWidget</string>
 	<key>PKWidgetAuthor</key>
-	<string>Ridha Ahmad Firdaus (Enhanced by Miftah)</string>
+	<string>Miftah (Original by RidhaAF)</string>
 	<key>PKWidgetPreferenceClass</key>
-	<string>lirik.LirikPreferenceViewController</string>
+	<string>syllo.SylloPreferenceViewController</string>
 </dict>
 </plist>

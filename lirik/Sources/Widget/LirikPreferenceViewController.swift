@@ -11,10 +11,10 @@ import Foundation
 import AppKit
 import PockKit
 
-@objc(LirikPreferenceViewController)
-final class LirikPreferenceViewController: NSViewController, PKWidgetPreference {
+@objc(SylloPreferenceViewController)
+class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
 
-    static var nibName: NSNib.Name = NSNib.Name("LirikPreferenceViewController")
+    static var nibName: NSNib.Name = NSNib.Name("SylloPreferenceViewController")
 
     convenience init() {
         self.init(nibName: nil, bundle: nil)
@@ -67,8 +67,8 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
 
     // MARK: - Top Header & Navigation
 
-    private let titleLabel = NSTextField(labelWithString: "Lirik Preferences")
-    private let badgeLabel = NSTextField(labelWithString: "v2.0 Enhanced")
+    private let titleLabel = NSTextField(labelWithString: "Syllo Preferences")
+    private let badgeLabel = NSTextField(labelWithString: "v2.0")
     private let languageControl = NSSegmentedControl(labels: ["ID", "EN"], trackingMode: .selectOne, target: nil, action: nil)
 
     private let tabSegment = NSSegmentedControl(
@@ -135,7 +135,7 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
 
     private let clearCacheButton = NSButton(title: "Hapus Vault & Cache", target: nil, action: nil)
     private let cacheStatusLabel = NSTextField(labelWithString: "")
-    private let creditsLabel = NSTextField(labelWithString: "Lirik Enhanced Edition v2.0 • Recoded by Miftah (MIT License)")
+    private let creditsLabel = NSTextField(labelWithString: "Syllo v2.0 • Originally based on Lirik by RidhaAF • Recoded & Enhanced by Miftah (MIT License)")
     private let lyricsCache = LyricsCache()
 
     // MARK: - View Lifecycle
@@ -541,6 +541,11 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
     private func updateLocalization() {
         let isID = isIndonesian
         languageControl.selectedSegment = isID ? 0 : 1
+
+        titleLabel.stringValue = isID ? "Pengaturan Syllo" : "Syllo Preferences"
+        creditsLabel.stringValue = isID
+            ? "Syllo v2.0 • Berdasarkan Lirik karya RidhaAF • Dikembangkan oleh Miftah (Lisensi MIT)"
+            : "Syllo v2.0 • Originally based on Lirik by RidhaAF • Recoded & Enhanced by Miftah (MIT License)"
 
         // Tabs
         tabSegment.setLabel(isID ? "Tampilan & Lirik" : "Appearance & Lyrics", forSegment: 0)
@@ -1151,3 +1156,9 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
             : "Vault: \(total) song\(total == 1 ? "" : "s") cached"
     }
 }
+
+@objc(LirikPreferenceViewController)
+class LirikPreferenceViewController: SylloPreferenceViewController {
+    // Backwards-compatibility subclass for legacy Pock installations
+}
+
