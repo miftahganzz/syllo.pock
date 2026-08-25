@@ -157,8 +157,8 @@ To compile the standalone Universal Binary (`x86_64` + `arm64`) for macOS Ventur
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/miftahganzz/syllo.git
-cd syllo
+git clone https://github.com/miftahganzz/syllo.pock.git
+cd syllo.pock
 
 # 2. Compile Universal Binary with swiftc
 swiftc -target x86_64-apple-macosx13.0 \
