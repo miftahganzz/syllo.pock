@@ -29,7 +29,13 @@ final class OfflineLyricsVault {
         let pockDir = appSupport.appendingPathComponent("Pock/Widgets", isDirectory: true)
 
         try? fileManager.createDirectory(at: pockDir, withIntermediateDirectories: true)
-        self.vaultURL = pockDir.appendingPathComponent("lirik_vault.json")
+        self.vaultURL = pockDir.appendingPathComponent("syllo_vault.json")
+
+        // Auto-migrate existing lirik_vault.json if syllo_vault.json is not yet created
+        let legacyURL = pockDir.appendingPathComponent("lirik_vault.json")
+        if !fileManager.fileExists(atPath: vaultURL.path) && fileManager.fileExists(atPath: legacyURL.path) {
+            try? fileManager.copyItem(at: legacyURL, to: vaultURL)
+        }
 
         loadVaultFromDisk()
     }

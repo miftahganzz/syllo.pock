@@ -1,9 +1,10 @@
-# PRD: Touch Bar 'Lirik' Widget
+# PRD: Touch Bar 'Syllo' Widget (Enhanced Edition)
 
-**Status:** Draft v1
-**Owner:** Ridha
-**Platform:** macOS, Touch Bar MacBook Pro (2016–2020 models only)
-**Working names:** `Lirik`
+**Status:** Completed v2.0
+**Original Concept:** RidhaAF
+**Enhanced Edition & Recode:** Miftah
+**Platform:** macOS, Touch Bar MacBook Pro (2016–2020 models) & macOS Ventura 13.0+
+**Working name:** `Syllo`
 
 ---
 

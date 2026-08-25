@@ -167,7 +167,7 @@ swiftc -target x86_64-apple-macosx13.0 \
   -framework AppKit -framework Foundation -framework ApplicationServices \
   -framework AVFoundation -framework QuartzCore -framework PockKit -framework TinyConstraints \
   -Xlinker -bundle -Xlinker -rpath -Xlinker @loader_path/../Frameworks \
-  $(find lirik/Sources -name "*.swift") -o /tmp/syllo_x86_64
+  $(find Sources -name "*.swift") -o /tmp/syllo_x86_64
 
 swiftc -target arm64-apple-macosx13.0 \
   -module-name syllo -emit-library \
@@ -175,7 +175,7 @@ swiftc -target arm64-apple-macosx13.0 \
   -framework AppKit -framework Foundation -framework ApplicationServices \
   -framework AVFoundation -framework QuartzCore -framework PockKit -framework TinyConstraints \
   -Xlinker -bundle -Xlinker -rpath -Xlinker @loader_path/../Frameworks \
-  $(find lirik/Sources -name "*.swift") -o /tmp/syllo_arm64
+  $(find Sources -name "*.swift") -o /tmp/syllo_arm64
 
 # 3. Create Universal Binary and bundle
 lipo -create -output dist/Syllo.pock/Contents/MacOS/syllo /tmp/syllo_x86_64 /tmp/syllo_arm64
