@@ -91,6 +91,15 @@ final class KaraokeLyricView: NSView {
 
     var enableGlow: Bool = true
 
+    /// Whether live lyric highlighting is active (if false, text renders statically bright with full brightness).
+    var isHighlightEnabled: Bool = true {
+        didSet {
+            if oldValue != isHighlightEnabled {
+                needsDisplay = true
+            }
+        }
+    }
+
     /// Active highlight rendering style.
     var highlightStyle: LyricHighlightStyle = .lineFocus {
         didSet {
@@ -98,6 +107,44 @@ final class KaraokeLyricView: NSView {
                 needsDisplay = true
             }
         }
+    }
+
+    /// Updates text with a smooth line transition animation (slide, fade, pop, instant).
+    func updateText(_ newText: String, animation: String) {
+        guard self.text != newText else { return }
+
+        guard animation != "instant", wantsLayer, let layer = self.layer else {
+            self.text = newText
+            return
+        }
+
+        layer.removeAnimation(forKey: "lineTransition")
+        layer.removeAnimation(forKey: "popScale")
+
+        let transition = CATransition()
+        transition.duration = 0.26
+        transition.timingFunction = CAMediaTimingFunction(name: .easeOut)
+
+        switch animation {
+        case "fade":
+            transition.type = .fade
+        case "pop":
+            transition.type = .fade
+            let pop = CAKeyframeAnimation(keyPath: "transform.scale")
+            pop.values = [0.93, 1.04, 1.0]
+            pop.keyTimes = [0.0, 0.55, 1.0]
+            pop.duration = 0.26
+            pop.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            layer.add(pop, forKey: "popScale")
+        case "slide":
+            fallthrough
+        default:
+            transition.type = .push
+            transition.subtype = .fromBottom
+        }
+
+        layer.add(transition, forKey: "lineTransition")
+        self.text = newText
     }
 
     /// Compatibility accessor for legacy toggles.
@@ -232,8 +279,8 @@ final class KaraokeLyricView: NSView {
             height: textSize.height
         )
 
-        // MARK: 1. Apple Music Line Focus Mode
-        if highlightStyle == .lineFocus || progress >= 0.999 {
+        // MARK: 1. Apple Music Line Focus Mode / Static Full Brightness (Highlight Disabled)
+        if !isHighlightEnabled || highlightStyle == .lineFocus || progress >= 0.999 {
             let shadow = NSShadow()
             if enableGlow {
                 shadow.shadowColor = activeColor.withAlphaComponent(0.75)

@@ -32,28 +32,31 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
 
     static let keyLanguage = "io.github.ridhaaf.lirik.language"
     static let keyDualLine = "io.github.ridhaaf.lirik.dualLine"
-    static let keyFontSize = "io.github.ridhaaf.lirik.fontSize"
-    static let keyPreferredPlayer = "io.github.ridhaaf.lirik.preferredPlayer"
-    static let keyShowPauseIcon = "io.github.ridhaaf.lirik.showPauseIcon"
+    static let keyEnableHighlight = "io.github.ridhaaf.lirik.enableHighlight"
+    static let keyLyricHighlightStyle = "io.github.ridhaaf.lirik.lyricHighlightStyle"
+    static let keyLyricAnimation = "io.github.ridhaaf.lirik.lyricAnimation"
+    static let keyLongLyricMode = "io.github.ridhaaf.lirik.longLyricMode"
     static let keyHighlightColor = "io.github.ridhaaf.lirik.highlightColor"
     static let keyAlignment = "io.github.ridhaaf.lirik.alignment"
-    static let keyEnableMarquee = "io.github.ridhaaf.lirik.enableMarquee"
+    static let keyFontSize = "io.github.ridhaaf.lirik.fontSize"
+
+    static let keyPreferredPlayer = "io.github.ridhaaf.lirik.preferredPlayer"
+    static let keyAdAudioBehavior = "io.github.ridhaaf.lirik.adAudioBehavior"
     static let keyShowAlbumArt = "io.github.ridhaaf.lirik.showAlbumArt"
     static let keyAlbumArtSize = "io.github.ridhaaf.lirik.albumArtSize"
+    static let keyEnableCanvas = "io.github.ridhaaf.lirik.enableCanvas"
     static let keyShowTrackInfo = "io.github.ridhaaf.lirik.showTrackInfo"
+    static let keyShowPauseIcon = "io.github.ridhaaf.lirik.showPauseIcon"
+
+    static let keyEnableRomanization = "io.github.ridhaaf.lirik.enableRomanization"
     static let keyShowEqualizer = "io.github.ridhaaf.lirik.showEqualizer"
     static let keyShowPitchVisualizer = "io.github.ridhaaf.lirik.showPitchVisualizer"
-    static let keyEnableCanvas = "io.github.ridhaaf.lirik.enableCanvas"
-    static let keyLyricAnimation = "io.github.ridhaaf.lirik.lyricAnimation"
-    static let keyEnableKaraokeGlow = "io.github.ridhaaf.lirik.enableKaraokeGlow"
-    static let keyLyricHighlightStyle = "io.github.ridhaaf.lirik.lyricHighlightStyle"
-    static let keyLongLyricMode = "io.github.ridhaaf.lirik.longLyricMode"
-    static let keyEnableRomanization = "io.github.ridhaaf.lirik.enableRomanization"
+    static let keyEnableMenuBarLyrics = "io.github.ridhaaf.lirik.enableMenuBarLyrics"
+    static let keyEnableUpNextCountdown = "io.github.ridhaaf.lirik.enableUpNextCountdown"
     static let keyShowHeartButton = "io.github.ridhaaf.lirik.showHeartButton"
     static let keyEnableGestures = "io.github.ridhaaf.lirik.enableGestures"
-    static let keyAdAudioBehavior = "io.github.ridhaaf.lirik.adAudioBehavior"
-    static let keyEnableUpNextCountdown = "io.github.ridhaaf.lirik.enableUpNextCountdown"
-    static let keyEnableMenuBarLyrics = "io.github.ridhaaf.lirik.enableMenuBarLyrics"
+    static let keyEnableMarquee = "io.github.ridhaaf.lirik.enableMarquee"
+    static let keyEnableKaraokeGlow = "io.github.ridhaaf.lirik.enableKaraokeGlow"
 
     // MARK: - Language State
 
@@ -81,21 +84,25 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
     // MARK: - Page 1 Controls (Appearance & Style)
 
     private let dualLineControl = NSSegmentedControl(labels: ["2-Baris", "1-Baris"], trackingMode: .selectOne, target: nil, action: nil)
+    private let highlightControl = NSSegmentedControl(labels: ["Aktif", "Nonaktif"], trackingMode: .selectOne, target: nil, action: nil)
     private let stylePopUp = NSPopUpButton()
+    private let animationPopUp = NSPopUpButton()
     private let longLyricPopUp = NSPopUpButton()
+
     private let colorPopUp = NSPopUpButton()
     private let alignmentControl = NSSegmentedControl(labels: ["Kiri", "Tengah"], trackingMode: .selectOne, target: nil, action: nil)
     private let fontSizeControl = NSSegmentedControl(labels: ["Kecil", "Sedang", "Besar"], trackingMode: .selectOne, target: nil, action: nil)
-    private let animationPopUp = NSPopUpButton()
 
     // Labels for Page 1
     private let modeLabel = NSTextField(labelWithString: "Mode:")
+    private let highlightLabel = NSTextField(labelWithString: "Sorotan Lirik:")
     private let styleLabel = NSTextField(labelWithString: "Gaya Sorotan:")
+    private let animLabel = NSTextField(labelWithString: "Animasi Baris:")
     private let longLyricLabel = NSTextField(labelWithString: "Lirik Panjang:")
+
     private let colorLabel = NSTextField(labelWithString: "Warna Sorotan:")
     private let alignLabel = NSTextField(labelWithString: "Perataan Teks:")
     private let fontLabel = NSTextField(labelWithString: "Ukuran Teks:")
-    private let animLabel = NSTextField(labelWithString: "Animasi Baris:")
 
     // MARK: - Page 2 Controls (Media & Player)
 
@@ -217,7 +224,7 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         creditsLabel.textColor = .tertiaryLabelColor
         mainStack.addArrangedSubview(creditsLabel)
 
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 430))
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 440))
         mainStack.frame = container.bounds
         mainStack.autoresizingMask = [.width, .height]
         container.addSubview(mainStack)
@@ -226,7 +233,7 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
             topRow.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -28),
             tabSegment.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -28),
             pageContainer.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -28),
-            pageContainer.heightAnchor.constraint(equalToConstant: 275),
+            pageContainer.heightAnchor.constraint(equalToConstant: 285),
             bottomSep.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -28),
             footerStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -28)
         ])
@@ -267,12 +274,16 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         layoutStack.spacing = 5
 
         let row1 = makeInlineRow(label: modeLabel, control: dualLineControl)
-        let row2 = makeInlineRow(label: styleLabel, control: stylePopUp)
-        let row3 = makeInlineRow(label: longLyricLabel, control: longLyricPopUp)
+        let row2 = makeInlineRow(label: highlightLabel, control: highlightControl)
+        let row3 = makeInlineRow(label: styleLabel, control: stylePopUp)
+        let row4 = makeInlineRow(label: animLabel, control: animationPopUp)
+        let row5 = makeInlineRow(label: longLyricLabel, control: longLyricPopUp)
 
         layoutStack.addArrangedSubview(row1)
         layoutStack.addArrangedSubview(row2)
         layoutStack.addArrangedSubview(row3)
+        layoutStack.addArrangedSubview(row4)
+        layoutStack.addArrangedSubview(row5)
 
         let card1 = makeCardBox(
             titleID: "TATA LETAK & GAYA LIRIK",
@@ -281,25 +292,23 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
             contentView: layoutStack
         )
 
-        // Card 2: Color, Alignment & Animation
+        // Card 2: Color & Typography
         let styleStack = NSStackView()
         styleStack.orientation = .vertical
         styleStack.alignment = .leading
         styleStack.spacing = 5
 
-        let row4 = makeInlineRow(label: colorLabel, control: colorPopUp)
-        let row5 = makeInlineRow(label: alignLabel, control: alignmentControl)
-        let row6 = makeInlineRow(label: fontLabel, control: fontSizeControl)
-        let row7 = makeInlineRow(label: animLabel, control: animationPopUp)
+        let row6 = makeInlineRow(label: colorLabel, control: colorPopUp)
+        let row7 = makeInlineRow(label: alignLabel, control: alignmentControl)
+        let row8 = makeInlineRow(label: fontLabel, control: fontSizeControl)
 
-        styleStack.addArrangedSubview(row4)
-        styleStack.addArrangedSubview(row5)
         styleStack.addArrangedSubview(row6)
         styleStack.addArrangedSubview(row7)
+        styleStack.addArrangedSubview(row8)
 
         let card2 = makeCardBox(
-            titleID: "WARNA, TIPOGRAFI & ANIMASI",
-            titleEN: "COLOR, TYPOGRAPHY & ANIMATION",
+            titleID: "WARNA & TIPOGRAFI",
+            titleEN: "COLOR & TYPOGRAPHY",
             iconName: "paintpalette.fill",
             contentView: styleStack
         )
@@ -548,6 +557,10 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         dualLineControl.setLabel(isID ? "2-Baris" : "2-Line", forSegment: 0)
         dualLineControl.setLabel(isID ? "1-Baris" : "1-Line", forSegment: 1)
 
+        highlightLabel.stringValue = isID ? "Sorotan Lirik:" : "Highlighting:"
+        highlightControl.setLabel(isID ? "Aktif" : "Enabled", forSegment: 0)
+        highlightControl.setLabel(isID ? "Nonaktif" : "Disabled", forSegment: 1)
+
         styleLabel.stringValue = isID ? "Gaya Sorotan:" : "Highlight Style:"
         let selectedStyleIdx = stylePopUp.indexOfSelectedItem
         stylePopUp.removeAllItems()
@@ -567,6 +580,26 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
             ])
         }
         stylePopUp.selectItem(at: max(0, selectedStyleIdx))
+
+        animLabel.stringValue = isID ? "Animasi Baris:" : "Line Transition:"
+        let selectedAnimIdx = animationPopUp.indexOfSelectedItem
+        animationPopUp.removeAllItems()
+        if isID {
+            animationPopUp.addItems(withTitles: [
+                "Slide Up (Spotify Smooth)",
+                "Smooth Crossfade",
+                "Spring Pulse",
+                "Instan (Tanpa Animasi)"
+            ])
+        } else {
+            animationPopUp.addItems(withTitles: [
+                "Slide Up (Spotify Smooth)",
+                "Smooth Crossfade",
+                "Spring Pulse",
+                "Instant (No Animation)"
+            ])
+        }
+        animationPopUp.selectItem(at: max(0, selectedAnimIdx))
 
         longLyricLabel.stringValue = isID ? "Lirik Panjang:" : "Long Lyrics:"
         let selectedLongIdx = longLyricPopUp.indexOfSelectedItem
@@ -626,26 +659,6 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         fontSizeControl.setLabel(isID ? "Kecil" : "Small", forSegment: 0)
         fontSizeControl.setLabel(isID ? "Sedang" : "Medium", forSegment: 1)
         fontSizeControl.setLabel(isID ? "Besar" : "Large", forSegment: 2)
-
-        animLabel.stringValue = isID ? "Animasi Baris:" : "Line Transition:"
-        let selectedAnimIdx = animationPopUp.indexOfSelectedItem
-        animationPopUp.removeAllItems()
-        if isID {
-            animationPopUp.addItems(withTitles: [
-                "Slide Up (Spotify Smooth)",
-                "Smooth Crossfade",
-                "Spring Pulse",
-                "Instan (Tanpa Animasi)"
-            ])
-        } else {
-            animationPopUp.addItems(withTitles: [
-                "Slide Up (Spotify Smooth)",
-                "Smooth Crossfade",
-                "Spring Pulse",
-                "Instant (No Animation)"
-            ])
-        }
-        animationPopUp.selectItem(at: max(0, selectedAnimIdx))
 
         // Page 2 Labels
         playerLabel.stringValue = isID ? "Pemutar Musik:" : "Music Player:"
@@ -736,6 +749,10 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         let dualLine = defaults.object(forKey: Self.keyDualLine) as? Bool ?? true
         dualLineControl.selectedSegment = dualLine ? 0 : 1
 
+        let enableHighlight = defaults.object(forKey: Self.keyEnableHighlight) as? Bool ?? true
+        highlightControl.selectedSegment = enableHighlight ? 0 : 1
+        stylePopUp.isEnabled = enableHighlight
+
         let align = defaults.string(forKey: Self.keyAlignment) ?? "left"
         alignmentControl.selectedSegment = (align == "center") ? 1 : 0
 
@@ -754,6 +771,14 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         case "wordPill": stylePopUp.selectItem(at: 2)
         case "smoothSweep": stylePopUp.selectItem(at: 3)
         default: stylePopUp.selectItem(at: 0) // wordBlock
+        }
+
+        let anim = defaults.string(forKey: Self.keyLyricAnimation) ?? "slide"
+        switch anim {
+        case "fade": animationPopUp.selectItem(at: 1)
+        case "pop": animationPopUp.selectItem(at: 2)
+        case "instant": animationPopUp.selectItem(at: 3)
+        default: animationPopUp.selectItem(at: 0) // slide
         }
 
         let longMode = defaults.string(forKey: Self.keyLongLyricMode) ?? "smartSplit"
@@ -775,14 +800,6 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         case "orange": colorPopUp.selectItem(at: 7)
         case "red": colorPopUp.selectItem(at: 8)
         default: colorPopUp.selectItem(at: 0)
-        }
-
-        let anim = defaults.string(forKey: Self.keyLyricAnimation) ?? "slide"
-        switch anim {
-        case "fade": animationPopUp.selectItem(at: 1)
-        case "pop": animationPopUp.selectItem(at: 2)
-        case "instant": animationPopUp.selectItem(at: 3)
-        default: animationPopUp.selectItem(at: 0)
         }
 
         let player = defaults.string(forKey: Self.keyPreferredPlayer) ?? "auto"
@@ -850,14 +867,14 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         dualLineControl.target = self
         dualLineControl.action = #selector(onDualLineChanged)
 
-        alignmentControl.target = self
-        alignmentControl.action = #selector(onAlignmentChanged)
-
-        fontSizeControl.target = self
-        fontSizeControl.action = #selector(onFontSizeChanged)
+        highlightControl.target = self
+        highlightControl.action = #selector(onHighlightControlChanged)
 
         stylePopUp.target = self
         stylePopUp.action = #selector(onStyleChanged)
+
+        animationPopUp.target = self
+        animationPopUp.action = #selector(onAnimationChanged)
 
         longLyricPopUp.target = self
         longLyricPopUp.action = #selector(onLongLyricModeChanged)
@@ -865,8 +882,11 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         colorPopUp.target = self
         colorPopUp.action = #selector(onColorChanged)
 
-        animationPopUp.target = self
-        animationPopUp.action = #selector(onAnimationChanged)
+        alignmentControl.target = self
+        alignmentControl.action = #selector(onAlignmentChanged)
+
+        fontSizeControl.target = self
+        fontSizeControl.action = #selector(onFontSizeChanged)
 
         playerPopUp.target = self
         playerPopUp.action = #selector(onPlayerChanged)
@@ -918,19 +938,11 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         UserDefaults.standard.set(isDual, forKey: Self.keyDualLine)
     }
 
-    @objc private func onAlignmentChanged() {
-        let align = (alignmentControl.selectedSegment == 1) ? "center" : "left"
-        UserDefaults.standard.set(align, forKey: Self.keyAlignment)
-    }
-
-    @objc private func onFontSizeChanged() {
-        let size: Int
-        switch fontSizeControl.selectedSegment {
-        case 0: size = 10
-        case 2: size = 13
-        default: size = 11
-        }
-        UserDefaults.standard.set(size, forKey: Self.keyFontSize)
+    @objc private func onHighlightControlChanged() {
+        let isHighlight = highlightControl.selectedSegment == 0
+        UserDefaults.standard.set(isHighlight, forKey: Self.keyEnableHighlight)
+        stylePopUp.isEnabled = isHighlight
+        NotificationCenter.default.post(name: Notification.Name("io.github.ridhaaf.lirik.highlightStyleChanged"), object: nil)
     }
 
     @objc private func onStyleChanged() {
@@ -943,6 +955,17 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         }
         UserDefaults.standard.set(style, forKey: Self.keyLyricHighlightStyle)
         NotificationCenter.default.post(name: Notification.Name("io.github.ridhaaf.lirik.highlightStyleChanged"), object: nil)
+    }
+
+    @objc private func onAnimationChanged() {
+        let anim: String
+        switch animationPopUp.indexOfSelectedItem {
+        case 1: anim = "fade"
+        case 2: anim = "pop"
+        case 3: anim = "instant"
+        default: anim = "slide"
+        }
+        UserDefaults.standard.set(anim, forKey: Self.keyLyricAnimation)
     }
 
     @objc private func onLongLyricModeChanged() {
@@ -973,15 +996,19 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         UserDefaults.standard.set(color, forKey: Self.keyHighlightColor)
     }
 
-    @objc private func onAnimationChanged() {
-        let anim: String
-        switch animationPopUp.indexOfSelectedItem {
-        case 1: anim = "fade"
-        case 2: anim = "pop"
-        case 3: anim = "instant"
-        default: anim = "slide"
+    @objc private func onAlignmentChanged() {
+        let align = (alignmentControl.selectedSegment == 1) ? "center" : "left"
+        UserDefaults.standard.set(align, forKey: Self.keyAlignment)
+    }
+
+    @objc private func onFontSizeChanged() {
+        let size: Int
+        switch fontSizeControl.selectedSegment {
+        case 0: size = 10
+        case 2: size = 13
+        default: size = 11
         }
-        UserDefaults.standard.set(anim, forKey: Self.keyLyricAnimation)
+        UserDefaults.standard.set(size, forKey: Self.keyFontSize)
     }
 
     @objc private func onPlayerChanged() {
@@ -1078,28 +1105,29 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: Self.keyLanguage)
         defaults.removeObject(forKey: Self.keyDualLine)
+        defaults.removeObject(forKey: Self.keyEnableHighlight)
+        defaults.removeObject(forKey: Self.keyLyricHighlightStyle)
+        defaults.removeObject(forKey: Self.keyLyricAnimation)
+        defaults.removeObject(forKey: Self.keyLongLyricMode)
+        defaults.removeObject(forKey: Self.keyHighlightColor)
+        defaults.removeObject(forKey: Self.keyAlignment)
         defaults.removeObject(forKey: Self.keyFontSize)
         defaults.removeObject(forKey: Self.keyPreferredPlayer)
+        defaults.removeObject(forKey: Self.keyAdAudioBehavior)
+        defaults.removeObject(forKey: Self.keyShowAlbumArt)
+        defaults.removeObject(forKey: Self.keyAlbumArtSize)
+        defaults.removeObject(forKey: Self.keyEnableCanvas)
+        defaults.removeObject(forKey: Self.keyShowTrackInfo)
         defaults.removeObject(forKey: Self.keyShowPauseIcon)
-        defaults.removeObject(forKey: Self.keyHighlightColor)
-        defaults.removeObject(forKey: Self.keyLyricAnimation)
-        defaults.removeObject(forKey: Self.keyEnableKaraokeGlow)
-        defaults.removeObject(forKey: Self.keyLyricHighlightStyle)
-        defaults.removeObject(forKey: Self.keyLongLyricMode)
+        defaults.removeObject(forKey: Self.keyEnableRomanization)
+        defaults.removeObject(forKey: Self.keyShowEqualizer)
         defaults.removeObject(forKey: Self.keyShowPitchVisualizer)
         defaults.removeObject(forKey: Self.keyEnableMenuBarLyrics)
         defaults.removeObject(forKey: Self.keyEnableUpNextCountdown)
-        defaults.removeObject(forKey: Self.keyAdAudioBehavior)
-        defaults.removeObject(forKey: Self.keyEnableRomanization)
         defaults.removeObject(forKey: Self.keyShowHeartButton)
-        defaults.removeObject(forKey: Self.keyAlignment)
-        defaults.removeObject(forKey: Self.keyEnableMarquee)
-        defaults.removeObject(forKey: Self.keyShowAlbumArt)
-        defaults.removeObject(forKey: Self.keyEnableCanvas)
         defaults.removeObject(forKey: Self.keyEnableGestures)
-        defaults.removeObject(forKey: Self.keyShowEqualizer)
-        defaults.removeObject(forKey: Self.keyAlbumArtSize)
-        defaults.removeObject(forKey: Self.keyShowTrackInfo)
+        defaults.removeObject(forKey: Self.keyEnableMarquee)
+        defaults.removeObject(forKey: Self.keyEnableKaraokeGlow)
         loadPreferences()
         updateLocalization()
     }
@@ -1123,5 +1151,3 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
             : "Vault: \(total) song\(total == 1 ? "" : "s") cached"
     }
 }
-
-

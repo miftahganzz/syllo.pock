@@ -1334,12 +1334,29 @@ class LyricsWidget: NSObject, PKWidget {
         return String(extended[start..<end])
     }
 
+    private func animateMainLineChange(newText: String) {
+        let defaults = UserDefaults.standard
+        let anim = defaults.string(forKey: LirikPreferenceViewController.keyLyricAnimation) ?? "slide"
+        karaokeView.updateText(newText, animation: anim)
+    }
+
     private func animateNextLineChange(label: NSTextField, newText: String) {
         guard label.stringValue != newText else { return }
+        let defaults = UserDefaults.standard
+        let anim = defaults.string(forKey: LirikPreferenceViewController.keyLyricAnimation) ?? "slide"
+        if anim == "instant" {
+            label.stringValue = newText
+            return
+        }
         let transition = CATransition()
-        transition.duration = 0.20
-        transition.type = .fade
-        label.layer?.add(transition, forKey: "nextFade")
+        transition.duration = 0.22
+        if anim == "slide" {
+            transition.type = .push
+            transition.subtype = .fromBottom
+        } else {
+            transition.type = .fade
+        }
+        label.layer?.add(transition, forKey: "nextTransition")
         label.stringValue = newText
     }
 
@@ -1413,7 +1430,7 @@ class LyricsWidget: NSObject, PKWidget {
         let hasNonLatin = Romanizer.containsNonLatin(rawLine)
         let displayLine = (enableRomanize && hasNonLatin) ? Romanizer.romanize(rawLine) : rawLine
         let newText = "\(prefix)\(formatLineText(displayLine))"
-        karaokeView.text = newText
+        animateMainLineChange(newText: newText)
         karaokeView.progress = 1.0
 
         let upcomingRaw = nextIndex != nil ? lines[nextIndex!] : ""
@@ -1492,6 +1509,8 @@ class LyricsWidget: NSObject, PKWidget {
         let enableRomanize = defaults.object(forKey: LirikPreferenceViewController.keyEnableRomanization) as? Bool ?? true
         let enableUpNext = defaults.object(forKey: LirikPreferenceViewController.keyEnableUpNextCountdown) as? Bool ?? true
         let styleStr = defaults.string(forKey: LirikPreferenceViewController.keyLyricHighlightStyle) ?? "wordBlock"
+        let enableHighlight = defaults.object(forKey: LirikPreferenceViewController.keyEnableHighlight) as? Bool ?? true
+        karaokeView.isHighlightEnabled = enableHighlight
         let longLyricMode = defaults.string(forKey: LirikPreferenceViewController.keyLongLyricMode) ?? "smartSplit"
 
         if let style = LyricHighlightStyle(rawValue: styleStr) {
@@ -1651,7 +1670,7 @@ class LyricsWidget: NSObject, PKWidget {
         }
 
         self.currentPreviousLineText = previousLineText
-        karaokeView.text = newText
+        animateMainLineChange(newText: newText)
         animateNextLineChange(label: nextLineLabel, newText: upcoming)
 
         // Update Floating Desktop HUD & Ambient Window
