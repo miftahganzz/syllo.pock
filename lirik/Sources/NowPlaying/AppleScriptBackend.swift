@@ -145,7 +145,11 @@ final class AppleScriptBackend {
             set trackPosition to player position
             set pState to player state as string
             set trackId to id of current track
-            return trackName & "|||" & trackArtist & "|||" & trackAlbum & "|||" & trackDuration & "|||" & trackPosition & "|||" & pState & "|||" & trackId
+            set trackArt to ""
+            try
+                set trackArt to artwork url of current track
+            end try
+            return trackName & "|||" & trackArtist & "|||" & trackAlbum & "|||" & trackDuration & "|||" & trackPosition & "|||" & pState & "|||" & trackId & "|||" & trackArt
         end tell
         """
 
@@ -164,6 +168,7 @@ final class AppleScriptBackend {
         let elapsed = TimeInterval(elapsedStr)
         let stateStr = parts[5].trimmingCharacters(in: .whitespaces).lowercased()
         let trackID = parts.count > 6 ? parts[6].trimmingCharacters(in: .whitespaces) : nil
+        let artworkURL = parts.count > 7 ? parts[7].trimmingCharacters(in: .whitespaces) : nil
 
         let lowerTitle = title.lowercased()
         let lowerArtist = artist.lowercased()
@@ -182,7 +187,8 @@ final class AppleScriptBackend {
             isPlaying: stateStr == "playing",
             source: .spotify,
             trackID: trackID,
-            isAdvertisement: isAd
+            isAdvertisement: isAd,
+            artworkURL: (artworkURL?.isEmpty == false && artworkURL?.hasPrefix("http") == true) ? artworkURL : nil
         )
     }
 

@@ -1628,7 +1628,9 @@ class LyricsWidget: NSObject, PKWidget {
 
             let image = await self.albumArtService.fetchArtwork(
                 artist: track.artist,
-                album: track.album
+                album: track.album,
+                title: track.title,
+                artworkURL: track.artworkURL
             )
 
             guard self.nowPlayingWatcher.currentTrack?.isSameTrack(as: track) == true else {

@@ -32,6 +32,7 @@ struct NowPlayingTrack: Sendable, Equatable {
     let source: NowPlayingSource
     let trackID: String?
     let isAdvertisement: Bool
+    let artworkURL: String?
 
     init(
         title: String,
@@ -42,7 +43,8 @@ struct NowPlayingTrack: Sendable, Equatable {
         isPlaying: Bool = false,
         source: NowPlayingSource = .unknown,
         trackID: String? = nil,
-        isAdvertisement: Bool = false
+        isAdvertisement: Bool = false,
+        artworkURL: String? = nil
     ) {
         self.title = title
         self.artist = artist
@@ -53,6 +55,7 @@ struct NowPlayingTrack: Sendable, Equatable {
         self.source = source
         self.trackID = trackID
         self.isAdvertisement = isAdvertisement
+        self.artworkURL = artworkURL
     }
 
     /// Two tracks represent the "same song" if title and artist match,

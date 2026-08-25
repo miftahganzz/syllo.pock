@@ -11,7 +11,7 @@ import Foundation
 import AppKit
 import CryptoKit
 
-/// Fetches and caches album artwork from the iTunes Search API.
+/// Fetches and caches high-fidelity album artwork directly from Spotify/Music CDN with iTunes fallback.
 final class AlbumArtService: @unchecked Sendable {
 
     // MARK: - Cache
@@ -23,7 +23,6 @@ final class AlbumArtService: @unchecked Sendable {
     private let diskCacheDir: URL
 
     /// Tracks in-flight requests to avoid duplicate network calls.
-    /// Key → Task mapping ensures only one request per unique album.
     private var inFlight: [String: Task<NSImage?, Never>] = [:]
     private let lock = NSLock()
 
@@ -36,17 +35,24 @@ final class AlbumArtService: @unchecked Sendable {
             .appendingPathComponent("artwork", isDirectory: true)
         try? FileManager.default.createDirectory(at: diskCacheDir, withIntermediateDirectories: true)
 
-        memoryCache.countLimit = 30 // Keep last 30 artworks in memory
+        memoryCache.countLimit = 50
     }
 
     // MARK: - Public API
 
-    /// Fetches album artwork for the given artist and album.
-    /// Returns nil if no artwork is found or the request fails.
-    func fetchArtwork(artist: String, album: String?) async -> NSImage? {
-        guard let album, !album.isEmpty else { return nil }
-
-        let key = Self.makeArtworkKey(artist: artist, album: album)
+    /// Fetches exact album artwork using direct player URL when available, with intelligent iTunes track search fallback.
+    func fetchArtwork(
+        artist: String,
+        album: String?,
+        title: String? = nil,
+        artworkURL: String? = nil
+    ) async -> NSImage? {
+        let key: String
+        if let directURL = artworkURL, !directURL.isEmpty {
+            key = Self.makeArtworkKey(fromURL: directURL)
+        } else {
+            key = Self.makeArtworkKey(artist: artist, album: album ?? "", title: title ?? "")
+        }
 
         // 1. Check memory cache
         if let cached = memoryCache.object(forKey: key as NSString) {
@@ -66,7 +72,7 @@ final class AlbumArtService: @unchecked Sendable {
             return await existing.value
         }
         let task = Task<NSImage?, Never> { [weak self] in
-            await self?.performFetch(artist: artist, album: album, key: key)
+            await self?.performFetch(artist: artist, album: album, title: title, directURL: artworkURL, key: key)
         }
         inFlight[key] = task
         lock.unlock()
@@ -85,75 +91,100 @@ final class AlbumArtService: @unchecked Sendable {
         return image
     }
 
-    // MARK: - Key generation
+    // MARK: - Key Generation
 
-    /// Generates a stable cache key from artist + album.
-    static func makeArtworkKey(artist: String, album: String) -> String {
+    static func makeArtworkKey(artist: String, album: String, title: String = "") -> String {
         let normArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let normAlbum = album.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let signature = "\(normArtist)|\(normAlbum)"
+        let normTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let signature = "\(normArtist)|\(normAlbum)|\(normTitle)"
         let digest = SHA256.hash(data: Data(signature.utf8))
         return digest.compactMap { String(format: "%02x", $0) }.joined()
     }
 
-    // MARK: - Network fetch
+    static func makeArtworkKey(fromURL urlStr: String) -> String {
+        let digest = SHA256.hash(data: Data(urlStr.utf8))
+        return digest.compactMap { String(format: "%02x", $0) }.joined()
+    }
 
-    /// Performs the actual iTunes API → image download pipeline.
-    /// Tries multiple query strategies in order:
-    /// 1. artist + album (entity=album)
-    /// 2. artist + album (entity=musicTrack) — better for EPs/singles
-    /// 3. artist only (entity=album) — broadest fallback
-    private func performFetch(artist: String, album: String, key: String) async -> NSImage? {
-        // Strategy 1: artist + album, entity=album
-        if let image = await searchAndDownload(artist: artist, album: album, entity: "album", cacheKey: key) {
-            return image
+    // MARK: - Fetch Pipeline
+
+    private func performFetch(
+        artist: String,
+        album: String?,
+        title: String?,
+        directURL: String?,
+        key: String
+    ) async -> NSImage? {
+        // Priority 1: Exact Direct Artwork URL from Spotify / Media Player CDN
+        if let directURLStr = directURL, let directURL = URL(string: directURLStr) {
+            if let image = await downloadDirect(url: directURL, cacheKey: key) {
+                return image
+            }
         }
 
-        // Strategy 2: artist + album, entity=musicTrack (catches EPs, singles, deluxe variants)
-        if let image = await searchAndDownload(artist: artist, album: album, entity: "musicTrack", cacheKey: key) {
-            return image
+        let cleanTitle = cleanSearchTerm(title ?? "")
+        let cleanArtist = cleanSearchTerm(artist)
+        let cleanAlbum = cleanSearchTerm(album ?? "")
+
+        // Priority 2: Precise Song Track Level Search (Title + Artist) on iTunes
+        if !cleanTitle.isEmpty && !cleanArtist.isEmpty {
+            if let image = await searchAndDownload(
+                query: "\(cleanTitle) \(cleanArtist)",
+                entity: "musicTrack",
+                expectedArtist: cleanArtist,
+                cacheKey: key
+            ) {
+                return image
+            }
         }
 
-        // Strategy 3: artist only, entity=album (broadest fallback)
-        if let image = await searchAndDownload(artist: artist, album: nil, entity: "album", cacheKey: key) {
-            return image
+        // Priority 3: Exact Album Search (Artist + Album) on iTunes
+        if !cleanAlbum.isEmpty && !cleanArtist.isEmpty {
+            if let image = await searchAndDownload(
+                query: "\(cleanArtist) \(cleanAlbum)",
+                entity: "album",
+                expectedArtist: cleanArtist,
+                cacheKey: key
+            ) {
+                return image
+            }
         }
 
-        NSLog("[AlbumArtService] All strategies exhausted for artist='\(artist)' album='\(album)'")
+        // Priority 4: Broad fallback search
+        if !cleanArtist.isEmpty {
+            if let image = await searchAndDownload(
+                query: cleanArtist,
+                entity: "album",
+                expectedArtist: nil,
+                cacheKey: key
+            ) {
+                return image
+            }
+        }
+
         return nil
     }
 
-    /// Performs a single iTunes API search + download attempt.
-    private func searchAndDownload(artist: String, album: String?, entity: String, cacheKey: String) async -> NSImage? {
-        let query: String
-        if let album, !album.isEmpty {
-            query = "\(artist) \(album)"
-        } else {
-            query = artist
-        }
+    // MARK: - iTunes Search & Match
 
+    private func searchAndDownload(
+        query: String,
+        entity: String,
+        expectedArtist: String?,
+        cacheKey: String
+    ) async -> NSImage? {
         guard let encoded = query.trimmingCharacters(in: .whitespaces)
-                .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+                .addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let searchURL = URL(string: "https://itunes.apple.com/search?term=\(encoded)&entity=\(entity)&limit=5") else {
             return nil
         }
 
-        guard let searchURL = URL(string: "https://itunes.apple.com/search?term=\(encoded)&entity=\(entity)&limit=1") else {
+        guard let (data, response) = try? await URLSession.shared.data(from: searchURL),
+              let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
             return nil
         }
 
-        let searchData: Data
-        do {
-            let (data, response) = try await URLSession.shared.data(from: searchURL)
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
-                return nil
-            }
-            searchData = data
-        } catch {
-            NSLog("[AlbumArtService] Search failed (\(entity)): \(error.localizedDescription)")
-            return nil
-        }
-
-        // Parse
         struct SearchResult: Codable {
             let results: [AlbumResult]
         }
@@ -162,32 +193,64 @@ final class AlbumArtService: @unchecked Sendable {
             let artworkUrl100: String?
             let collectionName: String?
             let trackName: String?
+            let artistName: String?
         }
 
-        guard let searchResult = try? JSONDecoder().decode(SearchResult.self, from: searchData),
-              let first = searchResult.results.first,
-              let artworkURLString = first.artworkUrl100 ?? first.artworkUrl60,
-              let artworkURL = URL(string: artworkURLString) else {
-            NSLog("[AlbumArtService] No results for query='\(query)' entity=\(entity)")
+        guard let searchResult = try? JSONDecoder().decode(SearchResult.self, from: data),
+              !searchResult.results.isEmpty else {
             return nil
         }
 
-        NSLog("[AlbumArtService] Found artwork for query='\(query)' entity=\(entity) → \(first.collectionName ?? first.trackName ?? "unknown")")
+        // Select best candidate verifying artist matches to avoid featured tracks or wrong covers
+        var bestResult: AlbumResult?
+        if let expected = expectedArtist?.lowercased(), !expected.isEmpty {
+            bestResult = searchResult.results.first(where: { result in
+                guard let artName = result.artistName?.lowercased() else { return false }
+                return artName.contains(expected) || expected.contains(artName)
+            })
+        }
+        if bestResult == nil {
+            bestResult = searchResult.results.first
+        }
 
-        // Download
-        do {
-            let (imageData, _) = try await URLSession.shared.data(from: artworkURL)
-            guard let image = NSImage(data: imageData) else { return nil }
-            let resized = resizeImage(image, to: NSSize(width: 60, height: 60))
-            saveToDisk(key: cacheKey, image: resized)
-            return resized
-        } catch {
-            NSLog("[AlbumArtService] Image download failed: \(error.localizedDescription)")
+        guard let match = bestResult,
+              let rawArtworkURL = match.artworkUrl100 ?? match.artworkUrl60 else {
             return nil
         }
+
+        // Upgrade 100x100 to crisp 300x300 for high-density Retina Touch Bar displays
+        let highResURLString = rawArtworkURL.replacingOccurrences(of: "100x100bb", with: "300x300bb")
+        guard let artworkURL = URL(string: highResURLString) else { return nil }
+
+        return await downloadDirect(url: artworkURL, cacheKey: cacheKey)
     }
 
-    // MARK: - Disk cache
+    // MARK: - Direct Image Download & Cache
+
+    private func downloadDirect(url: URL, cacheKey: String) async -> NSImage? {
+        guard let (imageData, _) = try? await URLSession.shared.data(from: url),
+              let image = NSImage(data: imageData) else {
+            return nil
+        }
+        let resized = resizeImage(image, to: NSSize(width: 80, height: 80))
+        saveToDisk(key: cacheKey, image: resized)
+        return resized
+    }
+
+    // MARK: - Helper Methods
+
+    private func cleanSearchTerm(_ term: String) -> String {
+        var cleaned = term
+        let patterns = [
+            "\\(feat\\..*?\\)", "\\(featuring.*?\\)",
+            "\\[.*?\\]", "\\(remastered.*?\\)", "\\(live.*?\\)", "\\(deluxe.*?\\)",
+            " - Remastered.*", " - Live.*", " - Single.*"
+        ]
+        for pattern in patterns {
+            cleaned = cleaned.replacingOccurrences(of: pattern, with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     private func diskCacheURL(for key: String) -> URL {
         return diskCacheDir.appendingPathComponent("\(key).png")
@@ -209,15 +272,16 @@ final class AlbumArtService: @unchecked Sendable {
         try? pngData.write(to: url, options: .atomic)
     }
 
-    // MARK: - Image resize
-
     private func resizeImage(_ image: NSImage, to size: NSSize) -> NSImage {
         let resized = NSImage(size: size)
         resized.lockFocus()
         NSGraphicsContext.current?.imageInterpolation = .high
-        image.draw(in: NSRect(origin: .zero, size: size),
-                   from: NSRect(origin: .zero, size: image.size),
-                   operation: .copy, fraction: 1.0)
+        image.draw(
+            in: NSRect(origin: .zero, size: size),
+            from: NSRect(origin: .zero, size: image.size),
+            operation: .copy,
+            fraction: 1.0
+        )
         resized.unlockFocus()
         return resized
     }
