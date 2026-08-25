@@ -31,3 +31,7 @@ dist/releases/
 .env
 *.local.plist
 genius_api_key.txt
+
+# Test scripts
+Tests/
+
