@@ -937,6 +937,13 @@ class LyricsWidget: NSObject, PKWidget {
             name: Notification.Name("io.github.ridhaaf.lirik.highlightStyleChanged"),
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onLongLyricModePreferenceChanged),
+            name: Notification.Name("io.github.ridhaaf.lirik.longLyricModeChanged"),
+            object: nil
+        )
     }
 
     @objc private func onPitchVisualizerPreferenceChanged() {
@@ -987,12 +994,45 @@ class LyricsWidget: NSObject, PKWidget {
 
     @objc private func onHighlightStylePreferenceChanged() {
         let defaults = UserDefaults.standard
-        let styleStr = defaults.string(forKey: LirikPreferenceViewController.keyLyricHighlightStyle) ?? "lineFocus"
-        let style = LyricHighlightStyle(rawValue: styleStr) ?? .lineFocus
+        let styleStr = defaults.string(forKey: LirikPreferenceViewController.keyLyricHighlightStyle) ?? "wordBlock"
+        let style = LyricHighlightStyle(rawValue: styleStr) ?? .wordBlock
         DispatchQueue.main.async { [weak self] in
             self?.karaokeView.highlightStyle = style
             self?.karaokeView.needsDisplay = true
         }
+    }
+
+    @objc private func onLongLyricModePreferenceChanged() {
+        DispatchQueue.main.async { [weak self] in
+            self?.karaokeView.needsDisplay = true
+        }
+    }
+
+    // MARK: - Long Lyric Chunking & Smart Split
+
+    private func splitLongLyricLine(_ text: String) -> (part1: String, part2: String)? {
+        guard text.count > 26 else { return nil }
+
+        // 1. Split at natural punctuation
+        let punctuationMarks = [", ", "; ", " - ", " — ", "... ", ": ", "? ", "! "]
+        for mark in punctuationMarks {
+            if let range = text.range(of: mark) {
+                let part1 = String(text[..<range.lowerBound]).trimmingCharacters(in: .whitespaces)
+                let part2 = String(text[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+                if part1.count >= 6 && part2.count >= 6 {
+                    return (part1, part2)
+                }
+            }
+        }
+
+        // 2. Fallback: split at middle word boundary
+        let words = text.components(separatedBy: " ").filter { !$0.isEmpty }
+        guard words.count >= 5 else { return nil }
+
+        let mid = words.count / 2
+        let part1 = words[0..<mid].joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        let part2 = words[mid..<words.count].joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        return (part1, part2)
     }
 
     // MARK: - Advertisement Rendering (Native SF Symbol)
@@ -1451,12 +1491,14 @@ class LyricsWidget: NSObject, PKWidget {
         let showPitch = defaults.object(forKey: LirikPreferenceViewController.keyShowPitchVisualizer) as? Bool ?? true
         let enableRomanize = defaults.object(forKey: LirikPreferenceViewController.keyEnableRomanization) as? Bool ?? true
         let enableUpNext = defaults.object(forKey: LirikPreferenceViewController.keyEnableUpNextCountdown) as? Bool ?? true
-        let styleStr = defaults.string(forKey: LirikPreferenceViewController.keyLyricHighlightStyle) ?? "lineFocus"
+        let styleStr = defaults.string(forKey: LirikPreferenceViewController.keyLyricHighlightStyle) ?? "wordBlock"
+        let longLyricMode = defaults.string(forKey: LirikPreferenceViewController.keyLongLyricMode) ?? "smartSplit"
+
         if let style = LyricHighlightStyle(rawValue: styleStr) {
             karaokeView.highlightStyle = style
         } else {
             let enableKaraokeGlow = defaults.object(forKey: LirikPreferenceViewController.keyEnableKaraokeGlow) as? Bool ?? false
-            karaokeView.highlightStyle = enableKaraokeGlow ? .smoothSweep : .lineFocus
+            karaokeView.highlightStyle = enableKaraokeGlow ? .smoothSweep : .wordBlock
         }
 
         equalizerView.isHidden = !showEq
@@ -1518,7 +1560,6 @@ class LyricsWidget: NSObject, PKWidget {
             
             let hasNonLatin = Romanizer.containsNonLatin(rawText)
             let displayMainText = (enableRomanize && hasNonLatin) ? Romanizer.romanize(rawText) : rawText
-            newText = "\(prefix)\(formatLineText(displayMainText))"
             
             let rawUpcoming = snapshot.upcomingLine?.text ?? ""
             if enableRomanize && hasNonLatin {
@@ -1537,14 +1578,40 @@ class LyricsWidget: NSObject, PKWidget {
             currentLineEndTimestamp = endTs
             currentLineWords = snapshot.currentLine?.words ?? []
 
-            let progress = calculateNaturalProgress(
+            let rawProgress = calculateNaturalProgress(
                 elapsed: elapsed,
                 lineStart: startTs,
                 lineEnd: endTs,
                 lineText: displayMainText,
                 explicitWords: currentLineWords
             )
-            karaokeView.progress = CGFloat(progress)
+
+            var finalMainText = displayMainText
+            var finalProgress = rawProgress
+
+            // Smart Auto-Split or Auto-Fit for long lines
+            if longLyricMode == "smartSplit", let split = splitLongLyricLine(displayMainText) {
+                if rawProgress < 0.50 {
+                    finalMainText = split.part1
+                    finalProgress = min(1.0, rawProgress * 2.0)
+                    if dualLine {
+                        upcoming = "⤷ \(split.part2)"
+                    }
+                } else {
+                    finalMainText = split.part2
+                    finalProgress = min(1.0, (rawProgress - 0.50) * 2.0)
+                }
+            } else if longLyricMode == "autoFit" {
+                let charCount = displayMainText.count
+                if charCount > 38 {
+                    karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(max(8, fontSize - 3)))
+                } else if charCount > 25 {
+                    karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(max(9, fontSize - 2)))
+                }
+            }
+
+            newText = "\(prefix)\(formatLineText(finalMainText))"
+            karaokeView.progress = CGFloat(finalProgress)
 
             if let idx = snapshot.currentIndex, idx > 0 {
                 let prevRaw = activeLines[idx - 1].text
