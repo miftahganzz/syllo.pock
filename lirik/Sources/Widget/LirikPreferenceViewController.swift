@@ -30,6 +30,7 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
 
     // MARK: - UserDefaults Keys
 
+    static let keyLanguage = "io.github.ridhaaf.lirik.language"
     static let keyDualLine = "io.github.ridhaaf.lirik.dualLine"
     static let keyFontSize = "io.github.ridhaaf.lirik.fontSize"
     static let keyPreferredPlayer = "io.github.ridhaaf.lirik.preferredPlayer"
@@ -54,329 +55,666 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
     static let keyEnableUpNextCountdown = "io.github.ridhaaf.lirik.enableUpNextCountdown"
     static let keyEnableMenuBarLyrics = "io.github.ridhaaf.lirik.enableMenuBarLyrics"
 
-    // MARK: - Category Switcher
+    // MARK: - Language State
 
-    private let categorySegmentControl = NSSegmentedControl(
-        labels: ["🎨 Gaya & Tampilan", "🎵 Player & Cover", "⚡ Fitur Cerdas"],
+    private var isIndonesian: Bool {
+        let lang = UserDefaults.standard.string(forKey: Self.keyLanguage) ?? "id"
+        return lang == "id"
+    }
+
+    // MARK: - Top Header & Navigation
+
+    private let titleLabel = NSTextField(labelWithString: "Lirik Preferences")
+    private let badgeLabel = NSTextField(labelWithString: "v2.0 Enhanced")
+    private let languageControl = NSSegmentedControl(labels: ["ID", "EN"], trackingMode: .selectOne, target: nil, action: nil)
+
+    private let tabSegment = NSSegmentedControl(
+        labels: ["Tampilan & Lirik", "Media & Player", "Fitur Cerdas"],
         trackingMode: .selectOne,
         target: nil,
         action: nil
     )
 
-    // MARK: - Category 1: Appearance & Lyrics Controls
+    private let pageContainer = NSView()
+    private var pageViews: [NSView] = []
 
-    private let appearanceStackView = NSStackView()
-    private let dualLineControl = NSSegmentedControl(labels: ["2-Baris Karaoke", "1-Baris Ringkas"], trackingMode: .selectOne, target: nil, action: nil)
+    // MARK: - Page 1 Controls (Appearance & Style)
+
+    private let dualLineControl = NSSegmentedControl(labels: ["2-Baris", "1-Baris"], trackingMode: .selectOne, target: nil, action: nil)
     private let stylePopUp = NSPopUpButton()
     private let longLyricPopUp = NSPopUpButton()
     private let colorPopUp = NSPopUpButton()
-    private let alignmentControl = NSSegmentedControl(labels: ["Rata Kiri", "Rata Tengah"], trackingMode: .selectOne, target: nil, action: nil)
-    private let fontSizeControl = NSSegmentedControl(labels: ["Kecil (10pt)", "Sedang (11pt)", "Besar (13pt)"], trackingMode: .selectOne, target: nil, action: nil)
+    private let alignmentControl = NSSegmentedControl(labels: ["Kiri", "Tengah"], trackingMode: .selectOne, target: nil, action: nil)
+    private let fontSizeControl = NSSegmentedControl(labels: ["Kecil", "Sedang", "Besar"], trackingMode: .selectOne, target: nil, action: nil)
     private let animationPopUp = NSPopUpButton()
 
-    // MARK: - Category 2: Media & Artwork Controls
+    // Labels for Page 1
+    private let modeLabel = NSTextField(labelWithString: "Mode:")
+    private let styleLabel = NSTextField(labelWithString: "Gaya Sorotan:")
+    private let longLyricLabel = NSTextField(labelWithString: "Lirik Panjang:")
+    private let colorLabel = NSTextField(labelWithString: "Warna Sorotan:")
+    private let alignLabel = NSTextField(labelWithString: "Perataan Teks:")
+    private let fontLabel = NSTextField(labelWithString: "Ukuran Teks:")
+    private let animLabel = NSTextField(labelWithString: "Animasi Baris:")
 
-    private let mediaStackView = NSStackView()
+    // MARK: - Page 2 Controls (Media & Player)
+
     private let playerPopUp = NSPopUpButton()
     private let adAudioPopUp = NSPopUpButton()
-    private let albumArtCheckbox = NSButton(checkboxWithTitle: "Tampilkan Foto / Sampul Album (Artwork)", target: nil, action: nil)
+    private let albumArtCheckbox = NSButton(checkboxWithTitle: "Sampul Album", target: nil, action: nil)
     private let albumArtSizeControl = NSSegmentedControl(labels: ["Kecil", "Sedang", "Besar"], trackingMode: .selectOne, target: nil, action: nil)
-    private let canvasCheckbox = NSButton(checkboxWithTitle: "Aktifkan Spotify Canvas Video Looping", target: nil, action: nil)
-    private let trackInfoCheckbox = NSButton(checkboxWithTitle: "Tampilkan Badge Info Lagu Saat Berganti", target: nil, action: nil)
-    private let pauseIconCheckbox = NSButton(checkboxWithTitle: "Tampilkan Ikon Jeda (⏸ / ❙❙) Saat Pause", target: nil, action: nil)
+    private let canvasCheckbox = NSButton(checkboxWithTitle: "Spotify Canvas Looping", target: nil, action: nil)
+    private let trackInfoCheckbox = NSButton(checkboxWithTitle: "Badge Info Lagu", target: nil, action: nil)
+    private let pauseIconCheckbox = NSButton(checkboxWithTitle: "Ikon Jeda (⏸ / ❙❙)", target: nil, action: nil)
 
-    // MARK: - Category 3: Smart Features & Gestures
+    private let playerLabel = NSTextField(labelWithString: "Pemutar Musik:")
+    private let adAudioLabel = NSTextField(labelWithString: "Iklan Spotify:")
+    private let artSizeLabel = NSTextField(labelWithString: "Ukuran Sampul:")
 
-    private let smartStackView = NSStackView()
-    private let romanizeCheckbox = NSButton(checkboxWithTitle: "Auto-Romanisasi Lirik Korea, Jepang & Mandarin", target: nil, action: nil)
-    private let equalizerCheckbox = NSButton(checkboxWithTitle: "Tampilkan Spektrum Equalizer Animatif", target: nil, action: nil)
-    private let pitchVisualizerCheckbox = NSButton(checkboxWithTitle: "Tampilkan Live Vocal Pitch & Melody Meter", target: nil, action: nil)
-    private let menuBarCheckbox = NSButton(checkboxWithTitle: "Tampilkan Lirik Berjalan di macOS Menu Bar", target: nil, action: nil)
-    private let upNextCheckbox = NSButton(checkboxWithTitle: "Tampilkan Hitung Mundur 'Up Next' di Outro Lagu", target: nil, action: nil)
-    private let heartButtonCheckbox = NSButton(checkboxWithTitle: "Tampilkan Tombol Suka (❤️) di Touch Bar", target: nil, action: nil)
-    private let gesturesCheckbox = NSButton(checkboxWithTitle: "Aktifkan Gestur 2-Jari (Geser Lagu & Volume)", target: nil, action: nil)
+    // MARK: - Page 3 Controls (Smart Features)
+
+    private let romanizeCheckbox = NSButton(checkboxWithTitle: "Auto-Romanisasi (KR/JP/CN)", target: nil, action: nil)
+    private let equalizerCheckbox = NSButton(checkboxWithTitle: "Spektrum Audio Equalizer", target: nil, action: nil)
+    private let pitchVisualizerCheckbox = NSButton(checkboxWithTitle: "Vocal Pitch & Melody Meter", target: nil, action: nil)
+    private let menuBarCheckbox = NSButton(checkboxWithTitle: "Lirik di macOS Menu Bar", target: nil, action: nil)
+    private let upNextCheckbox = NSButton(checkboxWithTitle: "Hitung Mundur 'Up Next'", target: nil, action: nil)
+    private let heartButtonCheckbox = NSButton(checkboxWithTitle: "Tombol Suka (❤️) Touch Bar", target: nil, action: nil)
+    private let gesturesCheckbox = NSButton(checkboxWithTitle: "Gestur 2-Jari (Skip & Vol)", target: nil, action: nil)
+
+    // MARK: - Card Headers (for dynamic translation)
+    private var cardHeaders: [(label: NSTextField, idKey: String, enKey: String)] = []
 
     // MARK: - Persistent Footer
 
-    private let clearCacheButton = NSButton(title: "Hapus Cache & Offline Vault", target: nil, action: nil)
+    private let clearCacheButton = NSButton(title: "Hapus Vault & Cache", target: nil, action: nil)
     private let cacheStatusLabel = NSTextField(labelWithString: "")
+    private let creditsLabel = NSTextField(labelWithString: "Lirik Enhanced Edition v2.0 • Recoded by Miftah (MIT License)")
     private let lyricsCache = LyricsCache()
 
     // MARK: - View Lifecycle
 
     override func loadView() {
-        let mainStackView = NSStackView()
-        mainStackView.orientation = .vertical
-        mainStackView.alignment = .leading
-        mainStackView.spacing = 12
-        mainStackView.edgeInsets = NSEdgeInsets(top: 14, left: 18, bottom: 14, right: 18)
+        let mainStack = NSStackView()
+        mainStack.orientation = .vertical
+        mainStack.alignment = .leading
+        mainStack.spacing = 10
+        mainStack.edgeInsets = NSEdgeInsets(top: 10, left: 14, bottom: 10, right: 14)
 
-        // Header Title & Version
-        let headerStack = NSStackView()
-        headerStack.orientation = .horizontal
-        headerStack.alignment = .centerY
-        headerStack.spacing = 8
+        // 1. Top Header Row: Title + Version Badge + Language Selector
+        let topRow = NSStackView()
+        topRow.orientation = .horizontal
+        topRow.alignment = .centerY
+        topRow.spacing = 8
 
-        let titleLabel = NSTextField(labelWithString: "Lirik Preferences")
-        titleLabel.font = NSFont.boldSystemFont(ofSize: 15)
+        titleLabel.font = NSFont.boldSystemFont(ofSize: 14)
 
-        let badgeLabel = NSTextField(labelWithString: "v2.0 Enhanced")
         badgeLabel.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
         badgeLabel.textColor = .secondaryLabelColor
 
-        headerStack.addArrangedSubview(titleLabel)
-        headerStack.addArrangedSubview(badgeLabel)
-        mainStackView.addArrangedSubview(headerStack)
+        languageControl.segmentStyle = .texturedRounded
+        languageControl.target = self
+        languageControl.action = #selector(onLanguageChanged)
 
-        // Category Tab Switcher
-        categorySegmentControl.selectedSegment = 0
-        categorySegmentControl.segmentDistribution = .fillEqually
-        categorySegmentControl.target = self
-        categorySegmentControl.action = #selector(onCategoryChanged)
-        mainStackView.addArrangedSubview(categorySegmentControl)
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
-        let topSep = NSBox()
-        topSep.boxType = .separator
-        mainStackView.addArrangedSubview(topSep)
+        topRow.addArrangedSubview(titleLabel)
+        topRow.addArrangedSubview(badgeLabel)
+        topRow.addArrangedSubview(spacer)
+        topRow.addArrangedSubview(languageControl)
+        mainStack.addArrangedSubview(topRow)
 
-        // ==========================================
-        // 1. APPEARANCE & LYRICS TAB
-        // ==========================================
-        appearanceStackView.orientation = .vertical
-        appearanceStackView.alignment = .leading
-        appearanceStackView.spacing = 10
-        appearanceStackView.wantsLayer = true
+        // 2. Segmented Tab Switcher with SF Symbols
+        tabSegment.target = self
+        tabSegment.action = #selector(onTabChanged(_:))
+        tabSegment.selectedSegment = 0
+        tabSegment.segmentStyle = .texturedRounded
 
-        // Display Mode
-        let modeStack = createSection(title: "Mode Tampilan:", control: dualLineControl)
-        appearanceStackView.addArrangedSubview(modeStack)
+        let tabConfig = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        if let icon1 = NSImage(systemSymbolName: "paintbrush.fill", accessibilityDescription: nil)?.withSymbolConfiguration(tabConfig) {
+            tabSegment.setImage(icon1, forSegment: 0)
+        }
+        if let icon2 = NSImage(systemSymbolName: "play.circle.fill", accessibilityDescription: nil)?.withSymbolConfiguration(tabConfig) {
+            tabSegment.setImage(icon2, forSegment: 1)
+        }
+        if let icon3 = NSImage(systemSymbolName: "sparkles", accessibilityDescription: nil)?.withSymbolConfiguration(tabConfig) {
+            tabSegment.setImage(icon3, forSegment: 2)
+        }
+        mainStack.addArrangedSubview(tabSegment)
 
-        // Highlight Style
-        stylePopUp.addItems(withTitles: [
-            "Word Snap (Seblok Kata Utuh — Pas & Smooth)",
-            "Apple Music Line Focus (Baris Aktif Bercahaya)",
-            "Word Pill (Kapsul Kata Bercahaya)",
-            "Smooth Karaoke Sweep (Wipe Progresif)"
-        ])
-        let styleStack = createSection(title: "Gaya Sorotan Lirik:", control: stylePopUp)
-        appearanceStackView.addArrangedSubview(styleStack)
+        // 3. Build Page Views
+        let page1 = buildAppearancePage()
+        let page2 = buildMediaPage()
+        let page3 = buildSmartFeaturesPage()
+        pageViews = [page1, page2, page3]
 
-        // Long Lyrics Handling
-        longLyricPopUp.addItems(withTitles: [
-            "Smart Auto-Split (Bagi 2 Bagian Cerdas — Rapi di Touch Bar)",
-            "Smooth Auto-Scroll (Marquee Halus)",
-            "Auto-Fit Font (Kecilkan Ukuran Font Otomatis)",
-            "Kalimat Utuh Penuh (Truncate Tail)"
-        ])
-        let longLyricStack = createSection(title: "Penanganan Lirik Panjang:", control: longLyricPopUp)
-        appearanceStackView.addArrangedSubview(longLyricStack)
+        pageContainer.translatesAutoresizingMaskIntoConstraints = false
+        mainStack.addArrangedSubview(pageContainer)
 
-        // Color
-        colorPopUp.addItems(withTitles: [
-            "Auto (Adaptif Warna Album)",
-            "Putih",
-            "Emas",
-            "Cyan",
-            "Hijau",
-            "Ungu",
-            "Pink",
-            "Oranye",
-            "Merah"
-        ])
-        let colorStack = createSection(title: "Warna Sorotan Lirik:", control: colorPopUp)
-        appearanceStackView.addArrangedSubview(colorStack)
-
-        // Text Alignment & Font Size
-        let alignStack = createSection(title: "Perataan Teks:", control: alignmentControl)
-        appearanceStackView.addArrangedSubview(alignStack)
-
-        let fontStack = createSection(title: "Ukuran Teks:", control: fontSizeControl)
-        appearanceStackView.addArrangedSubview(fontStack)
-
-        // Transition Animation
-        animationPopUp.addItems(withTitles: [
-            "Slide Up (Spotify Smooth)",
-            "Smooth Crossfade",
-            "Spring Pulse",
-            "Instan (Tanpa Animasi)"
-        ])
-        let animStack = createSection(title: "Animasi Pergantian Baris:", control: animationPopUp)
-        appearanceStackView.addArrangedSubview(animStack)
-
-        mainStackView.addArrangedSubview(appearanceStackView)
-
-        // ==========================================
-        // 2. MEDIA & ARTWORK TAB
-        // ==========================================
-        mediaStackView.orientation = .vertical
-        mediaStackView.alignment = .leading
-        mediaStackView.spacing = 10
-        mediaStackView.wantsLayer = true
-        mediaStackView.isHidden = true
-
-        playerPopUp.addItems(withTitles: [
-            "Otomatis (Spotify, Apple Music, QuickTime, IINA, VLC)",
-            "Spotify Saja",
-            "Apple Music Saja",
-            "QuickTime Player Saja",
-            "IINA Saja",
-            "VLC Media Player Saja"
-        ])
-        let playerStack = createSection(title: "Aplikasi Musik / Pemutar:", control: playerPopUp)
-        mediaStackView.addArrangedSubview(playerStack)
-
-        adAudioPopUp.addItems(withTitles: [
-            "Auto Mute (100% Senyap)",
-            "Auto Dim (Kecilkan Volume 10%)",
-            "Normal (Biarkan Saja)"
-        ])
-        let adAudioStack = createSection(title: "Perlakuan Iklan Spotify:", control: adAudioPopUp)
-        mediaStackView.addArrangedSubview(adAudioStack)
-
-        mediaStackView.addArrangedSubview(albumArtCheckbox)
-
-        let artSizeStack = createSection(title: "Ukuran Sampul Album:", control: albumArtSizeControl)
-        mediaStackView.addArrangedSubview(artSizeStack)
-
-        mediaStackView.addArrangedSubview(canvasCheckbox)
-        mediaStackView.addArrangedSubview(trackInfoCheckbox)
-        mediaStackView.addArrangedSubview(pauseIconCheckbox)
-
-        mainStackView.addArrangedSubview(mediaStackView)
-
-        // ==========================================
-        // 3. SMART FEATURES & GESTURES TAB
-        // ==========================================
-        smartStackView.orientation = .vertical
-        smartStackView.alignment = .leading
-        smartStackView.spacing = 10
-        smartStackView.wantsLayer = true
-        smartStackView.isHidden = true
-
-        smartStackView.addArrangedSubview(romanizeCheckbox)
-        smartStackView.addArrangedSubview(equalizerCheckbox)
-        smartStackView.addArrangedSubview(pitchVisualizerCheckbox)
-        smartStackView.addArrangedSubview(menuBarCheckbox)
-        smartStackView.addArrangedSubview(upNextCheckbox)
-        smartStackView.addArrangedSubview(heartButtonCheckbox)
-        smartStackView.addArrangedSubview(gesturesCheckbox)
-
-        mainStackView.addArrangedSubview(smartStackView)
-
-        // ==========================================
-        // PERSISTENT FOOTER: CACHE & CREDITS
-        // ==========================================
+        // 4. Persistent Footer: Cache Vault & Credits
         let bottomSep = NSBox()
         bottomSep.boxType = .separator
-        mainStackView.addArrangedSubview(bottomSep)
+        mainStack.addArrangedSubview(bottomSep)
 
-        let cacheStackView = NSStackView()
-        cacheStackView.orientation = .horizontal
-        cacheStackView.alignment = .centerY
-        cacheStackView.spacing = 10
+        let footerStack = NSStackView()
+        footerStack.orientation = .horizontal
+        footerStack.alignment = .centerY
+        footerStack.spacing = 8
 
         clearCacheButton.bezelStyle = .rounded
+        clearCacheButton.font = NSFont.systemFont(ofSize: 11)
         clearCacheButton.target = self
         clearCacheButton.action = #selector(onClearCacheTapped)
 
         cacheStatusLabel.font = NSFont.systemFont(ofSize: 11)
         cacheStatusLabel.textColor = .secondaryLabelColor
 
-        cacheStackView.addArrangedSubview(clearCacheButton)
-        cacheStackView.addArrangedSubview(cacheStatusLabel)
-        mainStackView.addArrangedSubview(cacheStackView)
+        footerStack.addArrangedSubview(clearCacheButton)
+        footerStack.addArrangedSubview(cacheStatusLabel)
+        mainStack.addArrangedSubview(footerStack)
 
-        let creditsLabel = NSTextField(labelWithString: "Lirik Enhanced Edition v2.0 • Recoded by Miftah (MIT License)")
-        creditsLabel.font = NSFont.systemFont(ofSize: 10, weight: .medium)
+        creditsLabel.font = NSFont.systemFont(ofSize: 9.5, weight: .regular)
         creditsLabel.textColor = .tertiaryLabelColor
-        mainStackView.addArrangedSubview(creditsLabel)
+        mainStack.addArrangedSubview(creditsLabel)
 
-        // Wire Target Actions
-        dualLineControl.target = self
-        dualLineControl.action = #selector(onDualLineChanged)
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 430))
+        mainStack.frame = container.bounds
+        mainStack.autoresizingMask = [.width, .height]
+        container.addSubview(mainStack)
 
-        alignmentControl.target = self
-        alignmentControl.action = #selector(onAlignmentChanged)
-
-        fontSizeControl.target = self
-        fontSizeControl.action = #selector(onFontSizeChanged)
-
-        stylePopUp.target = self
-        stylePopUp.action = #selector(onStyleChanged)
-
-        longLyricPopUp.target = self
-        longLyricPopUp.action = #selector(onLongLyricModeChanged)
-
-        colorPopUp.target = self
-        colorPopUp.action = #selector(onColorChanged)
-
-        animationPopUp.target = self
-        animationPopUp.action = #selector(onAnimationChanged)
-
-        playerPopUp.target = self
-        playerPopUp.action = #selector(onPlayerChanged)
-
-        adAudioPopUp.target = self
-        adAudioPopUp.action = #selector(onAdAudioChanged)
-
-        pitchVisualizerCheckbox.target = self
-        pitchVisualizerCheckbox.action = #selector(onPitchVisualizerChanged)
-
-        menuBarCheckbox.target = self
-        menuBarCheckbox.action = #selector(onMenuBarChanged)
-
-        upNextCheckbox.target = self
-        upNextCheckbox.action = #selector(onUpNextChanged)
-
-        romanizeCheckbox.target = self
-        romanizeCheckbox.action = #selector(onRomanizeChanged)
-
-        heartButtonCheckbox.target = self
-        heartButtonCheckbox.action = #selector(onHeartButtonChanged)
-
-        equalizerCheckbox.target = self
-        equalizerCheckbox.action = #selector(onEqualizerCheckboxChanged)
-
-        canvasCheckbox.target = self
-        canvasCheckbox.action = #selector(onCanvasCheckboxChanged)
-
-        gesturesCheckbox.target = self
-        gesturesCheckbox.action = #selector(onGesturesChanged)
-
-        pauseIconCheckbox.target = self
-        pauseIconCheckbox.action = #selector(onPauseCheckboxChanged)
-
-        albumArtCheckbox.target = self
-        albumArtCheckbox.action = #selector(onAlbumArtCheckboxChanged)
-
-        albumArtSizeControl.target = self
-        albumArtSizeControl.action = #selector(onAlbumArtSizeChanged)
-
-        trackInfoCheckbox.target = self
-        trackInfoCheckbox.action = #selector(onTrackInfoCheckboxChanged)
-
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 520))
-        mainStackView.frame = container.bounds
-        mainStackView.autoresizingMask = [.width, .height]
-        container.addSubview(mainStackView)
+        NSLayoutConstraint.activate([
+            topRow.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -28),
+            tabSegment.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -28),
+            pageContainer.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -28),
+            pageContainer.heightAnchor.constraint(equalToConstant: 275),
+            bottomSep.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -28),
+            footerStack.widthAnchor.constraint(equalTo: mainStack.widthAnchor, constant: -28)
+        ])
 
         self.view = container
+        wireActions()
+        updateLocalization()
+        showPage(0)
     }
 
-    private func createSection(title: String, control: NSView) -> NSStackView {
+    // MARK: - Tab Switching
+
+    @objc private func onTabChanged(_ sender: NSSegmentedControl) {
+        showPage(sender.selectedSegment)
+    }
+
+    private func showPage(_ index: Int) {
+        pageContainer.subviews.forEach { $0.removeFromSuperview() }
+        guard index >= 0, index < pageViews.count else { return }
+        let page = pageViews[index]
+        page.frame = pageContainer.bounds
+        page.autoresizingMask = [.width, .height]
+        pageContainer.addSubview(page)
+    }
+
+    // MARK: - Page 1: Appearance & Lyrics
+
+    private func buildAppearancePage() -> NSView {
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 3
+        stack.spacing = 8
 
-        let label = NSTextField(labelWithString: title)
-        label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
-        label.textColor = .secondaryLabelColor
+        // Card 1: Layout & Highlight Style
+        let layoutStack = NSStackView()
+        layoutStack.orientation = .vertical
+        layoutStack.alignment = .leading
+        layoutStack.spacing = 5
 
-        stack.addArrangedSubview(label)
-        stack.addArrangedSubview(control)
+        let row1 = makeInlineRow(label: modeLabel, control: dualLineControl)
+        let row2 = makeInlineRow(label: styleLabel, control: stylePopUp)
+        let row3 = makeInlineRow(label: longLyricLabel, control: longLyricPopUp)
+
+        layoutStack.addArrangedSubview(row1)
+        layoutStack.addArrangedSubview(row2)
+        layoutStack.addArrangedSubview(row3)
+
+        let card1 = makeCardBox(
+            titleID: "TATA LETAK & GAYA LIRIK",
+            titleEN: "LAYOUT & HIGHLIGHT STYLE",
+            iconName: "text.bubble.fill",
+            contentView: layoutStack
+        )
+
+        // Card 2: Color, Alignment & Animation
+        let styleStack = NSStackView()
+        styleStack.orientation = .vertical
+        styleStack.alignment = .leading
+        styleStack.spacing = 5
+
+        let row4 = makeInlineRow(label: colorLabel, control: colorPopUp)
+        let row5 = makeInlineRow(label: alignLabel, control: alignmentControl)
+        let row6 = makeInlineRow(label: fontLabel, control: fontSizeControl)
+        let row7 = makeInlineRow(label: animLabel, control: animationPopUp)
+
+        styleStack.addArrangedSubview(row4)
+        styleStack.addArrangedSubview(row5)
+        styleStack.addArrangedSubview(row6)
+        styleStack.addArrangedSubview(row7)
+
+        let card2 = makeCardBox(
+            titleID: "WARNA, TIPOGRAFI & ANIMASI",
+            titleEN: "COLOR, TYPOGRAPHY & ANIMATION",
+            iconName: "paintpalette.fill",
+            contentView: styleStack
+        )
+
+        stack.addArrangedSubview(card1)
+        stack.addArrangedSubview(card2)
         return stack
     }
+
+    // MARK: - Page 2: Media & Player
+
+    private func buildMediaPage() -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+
+        // Card 1: Music Player & Spotify Ads
+        let playerStack = NSStackView()
+        playerStack.orientation = .vertical
+        playerStack.alignment = .leading
+        playerStack.spacing = 5
+
+        let row1 = makeInlineRow(label: playerLabel, control: playerPopUp)
+        let row2 = makeInlineRow(label: adAudioLabel, control: adAudioPopUp)
+
+        playerStack.addArrangedSubview(row1)
+        playerStack.addArrangedSubview(row2)
+
+        let card1 = makeCardBox(
+            titleID: "PEMUTAR MUSIK & IKLAN",
+            titleEN: "MUSIC PLAYER & ADS BEHAVIOR",
+            iconName: "music.note.house.fill",
+            contentView: playerStack
+        )
+
+        // Card 2: Album Artwork & Media Visuals
+        let visualsGrid = make2ColumnGrid(items: [
+            (albumArtCheckbox, "photo.artframe"),
+            (canvasCheckbox, "film.fill"),
+            (trackInfoCheckbox, "info.circle.fill"),
+            (pauseIconCheckbox, "pause.circle.fill")
+        ])
+
+        let artSizeRow = makeInlineRow(label: artSizeLabel, control: albumArtSizeControl)
+
+        let visualsStack = NSStackView()
+        visualsStack.orientation = .vertical
+        visualsStack.alignment = .leading
+        visualsStack.spacing = 6
+        visualsStack.addArrangedSubview(visualsGrid)
+        visualsStack.addArrangedSubview(artSizeRow)
+
+        let card2 = makeCardBox(
+            titleID: "SAMPUL ALBUM & VISUAL",
+            titleEN: "ALBUM ARTWORK & VISUALS",
+            iconName: "photo.fill",
+            contentView: visualsStack
+        )
+
+        stack.addArrangedSubview(card1)
+        stack.addArrangedSubview(card2)
+        return stack
+    }
+
+    // MARK: - Page 3: Smart Features & Gestures
+
+    private func buildSmartFeaturesPage() -> NSView {
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+
+        // Card 1: Live Visualizers & Ticker
+        let visualizersGrid = make2ColumnGrid(items: [
+            (romanizeCheckbox, "character.book.closed.fill"),
+            (equalizerCheckbox, "waveform.path.ecg"),
+            (pitchVisualizerCheckbox, "music.mic"),
+            (menuBarCheckbox, "menubar.rectangle")
+        ])
+
+        let card1 = makeCardBox(
+            titleID: "VISUALISASI & INTEGRASI",
+            titleEN: "LIVE VISUALIZERS & TICKER",
+            iconName: "waveform.badge.magnifyingglass",
+            contentView: visualizersGrid
+        )
+
+        // Card 2: Touch Bar Interactions & Gestures
+        let interactionsGrid = make2ColumnGrid(items: [
+            (upNextCheckbox, "timer"),
+            (heartButtonCheckbox, "heart.fill"),
+            (gesturesCheckbox, "hand.draw.fill")
+        ])
+
+        let card2 = makeCardBox(
+            titleID: "INTERAKSI & GESTUR TOUCH BAR",
+            titleEN: "TOUCH BAR INTERACTIONS & GESTURES",
+            iconName: "hand.tap.fill",
+            contentView: interactionsGrid
+        )
+
+        stack.addArrangedSubview(card1)
+        stack.addArrangedSubview(card2)
+        return stack
+    }
+
+    // MARK: - Reusable UI Builders
+
+    private func makeCardBox(titleID: String, titleEN: String, iconName: String, contentView: NSView) -> NSBox {
+        let box = NSBox()
+        box.title = ""
+        box.boxType = .custom
+        box.cornerRadius = 8
+        box.borderWidth = 1
+        box.borderColor = NSColor.separatorColor.withAlphaComponent(0.3)
+        box.fillColor = NSColor.controlBackgroundColor.withAlphaComponent(0.35)
+        box.contentViewMargins = NSSize(width: 10, height: 6)
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+
+        let headerStack = NSStackView()
+        headerStack.orientation = .horizontal
+        headerStack.alignment = .centerY
+        headerStack.spacing = 6
+
+        let config = NSImage.SymbolConfiguration(pointSize: 10.5, weight: .semibold)
+        let imageView = NSImageView()
+        if let icon = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
+            imageView.image = icon
+            imageView.contentTintColor = .systemBlue
+        }
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            imageView.widthAnchor.constraint(equalToConstant: 14),
+            imageView.heightAnchor.constraint(equalToConstant: 14)
+        ])
+
+        let titleField = NSTextField(labelWithString: isIndonesian ? titleID : titleEN)
+        titleField.font = NSFont.systemFont(ofSize: 10, weight: .bold)
+        titleField.textColor = .secondaryLabelColor
+
+        cardHeaders.append((label: titleField, idKey: titleID, enKey: titleEN))
+
+        headerStack.addArrangedSubview(imageView)
+        headerStack.addArrangedSubview(titleField)
+
+        stack.addArrangedSubview(headerStack)
+        stack.addArrangedSubview(contentView)
+
+        box.contentView = stack
+        box.translatesAutoresizingMaskIntoConstraints = false
+        box.widthAnchor.constraint(equalToConstant: 412).isActive = true
+        return box
+    }
+
+    private func makeInlineRow(label: NSTextField, control: NSView) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 8
+
+        label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+        label.textColor = .secondaryLabelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.widthAnchor.constraint(equalToConstant: 95).isActive = true
+
+        row.addArrangedSubview(label)
+        row.addArrangedSubview(control)
+        return row
+    }
+
+    private func make2ColumnGrid(items: [(checkbox: NSButton, icon: String)]) -> NSView {
+        let grid = NSGridView(views: [])
+        grid.rowSpacing = 5
+        grid.columnSpacing = 16
+
+        for i in stride(from: 0, to: items.count, by: 2) {
+            let leftItem = items[i]
+            let leftView = makeItemRow(checkbox: leftItem.checkbox, iconName: leftItem.icon)
+
+            if i + 1 < items.count {
+                let rightItem = items[i + 1]
+                let rightView = makeItemRow(checkbox: rightItem.checkbox, iconName: rightItem.icon)
+                grid.addRow(with: [leftView, rightView])
+            } else {
+                grid.addRow(with: [leftView, NSView()])
+            }
+        }
+        return grid
+    }
+
+    private func makeItemRow(checkbox: NSButton, iconName: String) -> NSView {
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.alignment = .centerY
+        row.spacing = 6
+
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .medium)
+        let iv = NSImageView()
+        if let img = NSImage(systemSymbolName: iconName, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
+            iv.image = img
+            iv.contentTintColor = .systemBlue
+        }
+        iv.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            iv.widthAnchor.constraint(equalToConstant: 15),
+            iv.heightAnchor.constraint(equalToConstant: 15)
+        ])
+
+        checkbox.font = NSFont.systemFont(ofSize: 11, weight: .regular)
+        row.addArrangedSubview(iv)
+        row.addArrangedSubview(checkbox)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.widthAnchor.constraint(equalToConstant: 185).isActive = true
+        return row
+    }
+
+    // MARK: - Localization Engine
+
+    @objc private func onLanguageChanged() {
+        let selectedLang = (languageControl.selectedSegment == 0) ? "id" : "en"
+        UserDefaults.standard.set(selectedLang, forKey: Self.keyLanguage)
+        updateLocalization()
+    }
+
+    private func updateLocalization() {
+        let isID = isIndonesian
+        languageControl.selectedSegment = isID ? 0 : 1
+
+        // Tabs
+        tabSegment.setLabel(isID ? "Tampilan & Lirik" : "Appearance & Lyrics", forSegment: 0)
+        tabSegment.setLabel(isID ? "Media & Player" : "Media & Player", forSegment: 1)
+        tabSegment.setLabel(isID ? "Fitur Cerdas" : "Smart Features", forSegment: 2)
+
+        // Card Headers
+        for item in cardHeaders {
+            item.label.stringValue = isID ? item.idKey : item.enKey
+        }
+
+        // Page 1 Labels
+        modeLabel.stringValue = isID ? "Mode:" : "Mode:"
+        dualLineControl.setLabel(isID ? "2-Baris" : "2-Line", forSegment: 0)
+        dualLineControl.setLabel(isID ? "1-Baris" : "1-Line", forSegment: 1)
+
+        styleLabel.stringValue = isID ? "Gaya Sorotan:" : "Highlight Style:"
+        let selectedStyleIdx = stylePopUp.indexOfSelectedItem
+        stylePopUp.removeAllItems()
+        if isID {
+            stylePopUp.addItems(withTitles: [
+                "Word Snap (Seblok Kata Utuh)",
+                "Apple Music Line Focus",
+                "Word Pill (Kapsul Kata)",
+                "Smooth Karaoke Sweep"
+            ])
+        } else {
+            stylePopUp.addItems(withTitles: [
+                "Word Snap (Whole-Word Block)",
+                "Apple Music Line Focus",
+                "Word Pill (Capsule Bubble)",
+                "Smooth Karaoke Sweep"
+            ])
+        }
+        stylePopUp.selectItem(at: max(0, selectedStyleIdx))
+
+        longLyricLabel.stringValue = isID ? "Lirik Panjang:" : "Long Lyrics:"
+        let selectedLongIdx = longLyricPopUp.indexOfSelectedItem
+        longLyricPopUp.removeAllItems()
+        if isID {
+            longLyricPopUp.addItems(withTitles: [
+                "Smart Auto-Split (Bagi 2 Bagian)",
+                "Smooth Auto-Scroll (Marquee)",
+                "Auto-Fit (Kecilkan Font)",
+                "Kalimat Penuh (Truncate)"
+            ])
+        } else {
+            longLyricPopUp.addItems(withTitles: [
+                "Smart Auto-Split (Split in Half)",
+                "Smooth Auto-Scroll (Marquee)",
+                "Auto-Fit (Shrink Font)",
+                "Full Line (Truncate Tail)"
+            ])
+        }
+        longLyricPopUp.selectItem(at: max(0, selectedLongIdx))
+
+        colorLabel.stringValue = isID ? "Warna Sorotan:" : "Highlight Color:"
+        let selectedColorIdx = colorPopUp.indexOfSelectedItem
+        colorPopUp.removeAllItems()
+        if isID {
+            colorPopUp.addItems(withTitles: [
+                "Auto (Adaptif Sampul)",
+                "Putih",
+                "Emas",
+                "Cyan",
+                "Hijau",
+                "Ungu",
+                "Pink",
+                "Oranye",
+                "Merah"
+            ])
+        } else {
+            colorPopUp.addItems(withTitles: [
+                "Auto (Album Adaptive)",
+                "White",
+                "Gold",
+                "Cyan",
+                "Green",
+                "Purple",
+                "Pink",
+                "Orange",
+                "Red"
+            ])
+        }
+        colorPopUp.selectItem(at: max(0, selectedColorIdx))
+
+        alignLabel.stringValue = isID ? "Perataan Teks:" : "Text Alignment:"
+        alignmentControl.setLabel(isID ? "Kiri" : "Left", forSegment: 0)
+        alignmentControl.setLabel(isID ? "Tengah" : "Center", forSegment: 1)
+
+        fontLabel.stringValue = isID ? "Ukuran Teks:" : "Text Size:"
+        fontSizeControl.setLabel(isID ? "Kecil" : "Small", forSegment: 0)
+        fontSizeControl.setLabel(isID ? "Sedang" : "Medium", forSegment: 1)
+        fontSizeControl.setLabel(isID ? "Besar" : "Large", forSegment: 2)
+
+        animLabel.stringValue = isID ? "Animasi Baris:" : "Line Transition:"
+        let selectedAnimIdx = animationPopUp.indexOfSelectedItem
+        animationPopUp.removeAllItems()
+        if isID {
+            animationPopUp.addItems(withTitles: [
+                "Slide Up (Spotify Smooth)",
+                "Smooth Crossfade",
+                "Spring Pulse",
+                "Instan (Tanpa Animasi)"
+            ])
+        } else {
+            animationPopUp.addItems(withTitles: [
+                "Slide Up (Spotify Smooth)",
+                "Smooth Crossfade",
+                "Spring Pulse",
+                "Instant (No Animation)"
+            ])
+        }
+        animationPopUp.selectItem(at: max(0, selectedAnimIdx))
+
+        // Page 2 Labels
+        playerLabel.stringValue = isID ? "Pemutar Musik:" : "Music Player:"
+        let selectedPlayerIdx = playerPopUp.indexOfSelectedItem
+        playerPopUp.removeAllItems()
+        if isID {
+            playerPopUp.addItems(withTitles: [
+                "Otomatis (Spotify, Apple Music, VLC, dll)",
+                "Spotify Saja",
+                "Apple Music Saja",
+                "QuickTime Saja",
+                "IINA Saja",
+                "VLC Saja"
+            ])
+        } else {
+            playerPopUp.addItems(withTitles: [
+                "Auto-detect (Spotify, Apple Music, VLC, etc)",
+                "Spotify Only",
+                "Apple Music Only",
+                "QuickTime Only",
+                "IINA Only",
+                "VLC Only"
+            ])
+        }
+        playerPopUp.selectItem(at: max(0, selectedPlayerIdx))
+
+        adAudioLabel.stringValue = isID ? "Iklan Spotify:" : "Spotify Ads:"
+        let selectedAdIdx = adAudioPopUp.indexOfSelectedItem
+        adAudioPopUp.removeAllItems()
+        if isID {
+            adAudioPopUp.addItems(withTitles: [
+                "Auto Mute (100% Senyap)",
+                "Auto Dim (Kecilkan Volume 10%)",
+                "Normal (Biarkan Saja)"
+            ])
+        } else {
+            adAudioPopUp.addItems(withTitles: [
+                "Auto Mute (100% Silent)",
+                "Auto Dim (Whisper Volume 10%)",
+                "Normal (Do Nothing)"
+            ])
+        }
+        adAudioPopUp.selectItem(at: max(0, selectedAdIdx))
+
+        albumArtCheckbox.title = isID ? "Sampul Album" : "Album Artwork"
+        artSizeLabel.stringValue = isID ? "Ukuran Sampul:" : "Artwork Size:"
+        albumArtSizeControl.setLabel(isID ? "Kecil" : "Small", forSegment: 0)
+        albumArtSizeControl.setLabel(isID ? "Sedang" : "Medium", forSegment: 1)
+        albumArtSizeControl.setLabel(isID ? "Besar" : "Large", forSegment: 2)
+
+        canvasCheckbox.title = isID ? "Spotify Canvas Looping" : "Spotify Canvas Looping"
+        trackInfoCheckbox.title = isID ? "Badge Info Lagu" : "Song Change Badge"
+        pauseIconCheckbox.title = isID ? "Ikon Jeda (⏸ / ❙❙)" : "Pause Indicator (⏸)"
+
+        // Page 3 Checkboxes
+        romanizeCheckbox.title = isID ? "Auto-Romanisasi (KR/JP/CN)" : "Auto-Romanize (KR/JP/CN)"
+        equalizerCheckbox.title = isID ? "Spektrum Equalizer" : "Equalizer Spectrum"
+        pitchVisualizerCheckbox.title = isID ? "Vocal Pitch & Melody" : "Vocal Pitch & Melody"
+        menuBarCheckbox.title = isID ? "Lirik di Menu Bar" : "Lyrics in Menu Bar"
+        upNextCheckbox.title = isID ? "Hitung Mundur 'Up Next'" : "'Up Next' Countdown"
+        heartButtonCheckbox.title = isID ? "Tombol Suka (❤️)" : "Like Button (❤️)"
+        gesturesCheckbox.title = isID ? "Gestur 2-Jari (Skip & Vol)" : "2-Finger Gestures"
+
+        // Footer
+        clearCacheButton.title = isID ? "Hapus Vault & Cache" : "Clear Vault & Cache"
+        updateCacheStatus()
+    }
+
+    // MARK: - Load & Save Logic
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -389,19 +727,11 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         updateCacheStatus()
     }
 
-    // MARK: - Category Tab Switching
-
-    @objc private func onCategoryChanged() {
-        let selected = categorySegmentControl.selectedSegment
-        appearanceStackView.isHidden = (selected != 0)
-        mediaStackView.isHidden = (selected != 1)
-        smartStackView.isHidden = (selected != 2)
-    }
-
-    // MARK: - Load Preferences
-
     private func loadPreferences() {
         let defaults = UserDefaults.standard
+
+        let lang = defaults.string(forKey: Self.keyLanguage) ?? "id"
+        languageControl.selectedSegment = (lang == "en") ? 1 : 0
 
         let dualLine = defaults.object(forKey: Self.keyDualLine) as? Bool ?? true
         dualLineControl.selectedSegment = dualLine ? 0 : 1
@@ -514,6 +844,71 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
 
         let showTrackInfo = defaults.object(forKey: Self.keyShowTrackInfo) as? Bool ?? false
         trackInfoCheckbox.state = showTrackInfo ? .on : .off
+    }
+
+    private func wireActions() {
+        dualLineControl.target = self
+        dualLineControl.action = #selector(onDualLineChanged)
+
+        alignmentControl.target = self
+        alignmentControl.action = #selector(onAlignmentChanged)
+
+        fontSizeControl.target = self
+        fontSizeControl.action = #selector(onFontSizeChanged)
+
+        stylePopUp.target = self
+        stylePopUp.action = #selector(onStyleChanged)
+
+        longLyricPopUp.target = self
+        longLyricPopUp.action = #selector(onLongLyricModeChanged)
+
+        colorPopUp.target = self
+        colorPopUp.action = #selector(onColorChanged)
+
+        animationPopUp.target = self
+        animationPopUp.action = #selector(onAnimationChanged)
+
+        playerPopUp.target = self
+        playerPopUp.action = #selector(onPlayerChanged)
+
+        adAudioPopUp.target = self
+        adAudioPopUp.action = #selector(onAdAudioChanged)
+
+        pitchVisualizerCheckbox.target = self
+        pitchVisualizerCheckbox.action = #selector(onPitchVisualizerChanged)
+
+        menuBarCheckbox.target = self
+        menuBarCheckbox.action = #selector(onMenuBarChanged)
+
+        upNextCheckbox.target = self
+        upNextCheckbox.action = #selector(onUpNextChanged)
+
+        romanizeCheckbox.target = self
+        romanizeCheckbox.action = #selector(onRomanizeChanged)
+
+        heartButtonCheckbox.target = self
+        heartButtonCheckbox.action = #selector(onHeartButtonChanged)
+
+        equalizerCheckbox.target = self
+        equalizerCheckbox.action = #selector(onEqualizerCheckboxChanged)
+
+        canvasCheckbox.target = self
+        canvasCheckbox.action = #selector(onCanvasCheckboxChanged)
+
+        gesturesCheckbox.target = self
+        gesturesCheckbox.action = #selector(onGesturesChanged)
+
+        pauseIconCheckbox.target = self
+        pauseIconCheckbox.action = #selector(onPauseCheckboxChanged)
+
+        albumArtCheckbox.target = self
+        albumArtCheckbox.action = #selector(onAlbumArtCheckboxChanged)
+
+        albumArtSizeControl.target = self
+        albumArtSizeControl.action = #selector(onAlbumArtSizeChanged)
+
+        trackInfoCheckbox.target = self
+        trackInfoCheckbox.action = #selector(onTrackInfoCheckboxChanged)
     }
 
     // MARK: - Action Handlers
@@ -681,6 +1076,7 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
 
     func reset() {
         let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: Self.keyLanguage)
         defaults.removeObject(forKey: Self.keyDualLine)
         defaults.removeObject(forKey: Self.keyFontSize)
         defaults.removeObject(forKey: Self.keyPreferredPlayer)
@@ -705,13 +1101,14 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         defaults.removeObject(forKey: Self.keyAlbumArtSize)
         defaults.removeObject(forKey: Self.keyShowTrackInfo)
         loadPreferences()
+        updateLocalization()
     }
 
     @objc private func onClearCacheTapped() {
         lyricsCache.clear()
         OfflineLyricsVault.shared.clearVault()
         updateCacheStatus()
-        cacheStatusLabel.stringValue = "Vault & Cache dibersihkan!"
+        cacheStatusLabel.stringValue = isIndonesian ? "Vault & Cache dibersihkan!" : "Vault & Cache cleared!"
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             self?.updateCacheStatus()
         }
@@ -721,7 +1118,10 @@ final class LirikPreferenceViewController: NSViewController, PKWidgetPreference 
         let memoryCount = lyricsCache.count
         let vaultCount = OfflineLyricsVault.shared.totalSongsInVault
         let total = max(memoryCount, vaultCount)
-        cacheStatusLabel.stringValue = "Vault: \(total) lagu tersimpan offline"
+        cacheStatusLabel.stringValue = isIndonesian
+            ? "Vault: \(total) lagu tersimpan"
+            : "Vault: \(total) song\(total == 1 ? "" : "s") cached"
     }
 }
+
 
