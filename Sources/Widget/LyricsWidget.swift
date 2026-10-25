@@ -87,6 +87,8 @@ class LyricsWidget: NSObject, PKWidget {
     private let videoView = LoopingVideoView()
     private var albumArtWidthConstraint: NSLayoutConstraint?
     private var albumArtHeightConstraint: NSLayoutConstraint?
+    private var containerWidthConstraint: NSLayoutConstraint?
+    private var karaokeHeightConstraint: NSLayoutConstraint?
 
     /// Animated Equalizer visualizer bars
     private let equalizerView = EqualizerVisualizerView()
@@ -261,17 +263,18 @@ class LyricsWidget: NSObject, PKWidget {
         textStackView.orientation = .vertical
         textStackView.alignment = .leading
         textStackView.distribution = .fillProportionally
-        textStackView.spacing = 0
+        textStackView.spacing = -1
 
         // Apple Music Sing Karaoke View
         karaokeView.font = NSFont.boldSystemFont(ofSize: 11)
         karaokeView.activeColor = .white
         karaokeView.text = "Syllo"
-        karaokeView.heightAnchor.constraint(equalToConstant: 16).isActive = true
+        karaokeHeightConstraint = karaokeView.heightAnchor.constraint(equalToConstant: 16)
+        karaokeHeightConstraint?.isActive = true
         karaokeView.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
         // Next line label
-        nextLineLabel.font = NSFont.systemFont(ofSize: 9)
+        nextLineLabel.font = NSFont.systemFont(ofSize: 9.5)
         nextLineLabel.wantsLayer = true
         nextLineLabel.textColor = .secondaryLabelColor
         nextLineLabel.lineBreakMode = .byTruncatingTail
@@ -304,9 +307,11 @@ class LyricsWidget: NSObject, PKWidget {
         containerView.addArrangedSubview(pitchMelodyVisualizer)
         containerView.addArrangedSubview(touchView)
 
-        // Minimum width constraint
+        // Dynamic width constraint
         containerView.translatesAutoresizingMaskIntoConstraints = false
-        containerView.widthAnchor.constraint(greaterThanOrEqualToConstant: 280).isActive = true
+        let initWidth = resolveWidgetWidth()
+        containerWidthConstraint = containerView.widthAnchor.constraint(greaterThanOrEqualToConstant: initWidth)
+        containerWidthConstraint?.isActive = true
 
         self.view = containerView
     }
@@ -945,6 +950,33 @@ class LyricsWidget: NSObject, PKWidget {
             name: Notification.Name("io.github.ridhaaf.lirik.longLyricModeChanged"),
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onWidgetWidthPreferenceChanged),
+            name: Notification.Name("io.github.ridhaaf.lirik.widgetWidthChanged"),
+            object: nil
+        )
+    }
+
+    @objc private func onWidgetWidthPreferenceChanged() {
+        let width = resolveWidgetWidth()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.containerWidthConstraint?.constant = width
+            self.containerView.layoutSubtreeIfNeeded()
+        }
+    }
+
+    private func resolveWidgetWidth() -> CGFloat {
+        let mode = UserDefaults.standard.string(forKey: LirikPreferenceViewController.keyWidgetWidth) ?? "max"
+        switch mode {
+        case "compact": return 280
+        case "medium": return 420
+        case "wide": return 580
+        case "max": return 750
+        default: return 750
+        }
     }
 
     @objc private func onPitchVisualizerPreferenceChanged() {
@@ -1382,9 +1414,16 @@ class LyricsWidget: NSObject, PKWidget {
         heartButton.isHidden = !showHeart
 
         applyTextAlignment()
-        karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(fontSize))
-        nextLineLabel.font = NSFont.systemFont(ofSize: CGFloat(max(8, fontSize - 2)))
-        nextLineLabel.isHidden = !dualLine
+        if !dualLine {
+            karaokeHeightConstraint?.constant = 25
+            karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(fontSize + 2))
+            nextLineLabel.isHidden = true
+        } else {
+            karaokeHeightConstraint?.constant = 16
+            karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(fontSize))
+            nextLineLabel.font = NSFont.systemFont(ofSize: CGFloat(max(9.5, Double(fontSize) - 1.5)))
+            nextLineLabel.isHidden = false
+        }
 
         applyAlbumArtSize()
 
@@ -1521,9 +1560,16 @@ class LyricsWidget: NSObject, PKWidget {
         heartButton.isHidden = !showHeart
 
         applyTextAlignment()
-        karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(fontSize))
-        nextLineLabel.font = NSFont.systemFont(ofSize: CGFloat(max(8, fontSize - 2)))
-        nextLineLabel.isHidden = !dualLine
+        if !dualLine {
+            karaokeHeightConstraint?.constant = 25
+            karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(fontSize + 2))
+            nextLineLabel.isHidden = true
+        } else {
+            karaokeHeightConstraint?.constant = 16
+            karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(fontSize))
+            nextLineLabel.font = NSFont.systemFont(ofSize: CGFloat(max(9.5, Double(fontSize) - 1.5)))
+            nextLineLabel.isHidden = false
+        }
 
         applyAlbumArtSize()
 
@@ -1618,10 +1664,10 @@ class LyricsWidget: NSObject, PKWidget {
                 }
             } else if longLyricMode == "autoFit" {
                 let charCount = displayMainText.count
-                if charCount > 38 {
-                    karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(max(8, fontSize - 3)))
-                } else if charCount > 25 {
-                    karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(max(9, fontSize - 2)))
+                if charCount > 48 {
+                    karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(max(10.0, Double(fontSize) - 1.0)))
+                } else if charCount > 35 {
+                    karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(max(10.5, Double(fontSize) - 0.5)))
                 }
             }
 

@@ -39,6 +39,7 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
     static let keyHighlightColor = "io.github.ridhaaf.lirik.highlightColor"
     static let keyAlignment = "io.github.ridhaaf.lirik.alignment"
     static let keyFontSize = "io.github.ridhaaf.lirik.fontSize"
+    static let keyWidgetWidth = "io.github.ridhaaf.lirik.widgetWidth"
 
     static let keyPreferredPlayer = "io.github.ridhaaf.lirik.preferredPlayer"
     static let keyAdAudioBehavior = "io.github.ridhaaf.lirik.adAudioBehavior"
@@ -92,6 +93,7 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
     private let colorPopUp = NSPopUpButton()
     private let alignmentControl = NSSegmentedControl(labels: ["Kiri", "Tengah"], trackingMode: .selectOne, target: nil, action: nil)
     private let fontSizeControl = NSSegmentedControl(labels: ["Kecil", "Sedang", "Besar"], trackingMode: .selectOne, target: nil, action: nil)
+    private let widgetWidthControl = NSSegmentedControl(labels: ["Kompak", "Sedang", "Lebar", "Maksimal"], trackingMode: .selectOne, target: nil, action: nil)
 
     // Labels for Page 1
     private let modeLabel = NSTextField(labelWithString: "Mode:")
@@ -103,6 +105,7 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
     private let colorLabel = NSTextField(labelWithString: "Warna Sorotan:")
     private let alignLabel = NSTextField(labelWithString: "Perataan Teks:")
     private let fontLabel = NSTextField(labelWithString: "Ukuran Teks:")
+    private let widgetWidthLabel = NSTextField(labelWithString: "Lebar Widget:")
 
     // MARK: - Page 2 Controls (Media & Player)
 
@@ -301,14 +304,16 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         let row6 = makeInlineRow(label: colorLabel, control: colorPopUp)
         let row7 = makeInlineRow(label: alignLabel, control: alignmentControl)
         let row8 = makeInlineRow(label: fontLabel, control: fontSizeControl)
+        let row9 = makeInlineRow(label: widgetWidthLabel, control: widgetWidthControl)
 
         styleStack.addArrangedSubview(row6)
         styleStack.addArrangedSubview(row7)
         styleStack.addArrangedSubview(row8)
+        styleStack.addArrangedSubview(row9)
 
         let card2 = makeCardBox(
-            titleID: "WARNA & TIPOGRAFI",
-            titleEN: "COLOR & TYPOGRAPHY",
+            titleID: "WARNA, TIPOGRAFI & LEBAR",
+            titleEN: "COLOR, TYPOGRAPHY & WIDTH",
             iconName: "paintpalette.fill",
             contentView: styleStack
         )
@@ -665,6 +670,12 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         fontSizeControl.setLabel(isID ? "Sedang" : "Medium", forSegment: 1)
         fontSizeControl.setLabel(isID ? "Besar" : "Large", forSegment: 2)
 
+        widgetWidthLabel.stringValue = isID ? "Lebar Widget:" : "Widget Width:"
+        widgetWidthControl.setLabel(isID ? "Kompak" : "Compact", forSegment: 0)
+        widgetWidthControl.setLabel(isID ? "Sedang" : "Medium", forSegment: 1)
+        widgetWidthControl.setLabel(isID ? "Lebar" : "Wide", forSegment: 2)
+        widgetWidthControl.setLabel(isID ? "Maksimal" : "Fill Max", forSegment: 3)
+
         // Page 2 Labels
         playerLabel.stringValue = isID ? "Pemutar Musik:" : "Music Player:"
         let selectedPlayerIdx = playerPopUp.indexOfSelectedItem
@@ -772,6 +783,15 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
             fontSizeControl.selectedSegment = 2
         } else {
             fontSizeControl.selectedSegment = 1
+        }
+
+        let widthMode = defaults.string(forKey: Self.keyWidgetWidth) ?? "max"
+        switch widthMode {
+        case "compact": widgetWidthControl.selectedSegment = 0
+        case "medium": widgetWidthControl.selectedSegment = 1
+        case "wide": widgetWidthControl.selectedSegment = 2
+        case "max": widgetWidthControl.selectedSegment = 3
+        default: widgetWidthControl.selectedSegment = 3
         }
 
         let style = defaults.string(forKey: Self.keyLyricHighlightStyle) ?? "wordBlock"
@@ -901,6 +921,9 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         fontSizeControl.target = self
         fontSizeControl.action = #selector(onFontSizeChanged)
 
+        widgetWidthControl.target = self
+        widgetWidthControl.action = #selector(onWidgetWidthChanged)
+
         playerPopUp.target = self
         playerPopUp.action = #selector(onPlayerChanged)
 
@@ -1022,6 +1045,19 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         default: size = 11
         }
         UserDefaults.standard.set(size, forKey: Self.keyFontSize)
+    }
+
+    @objc private func onWidgetWidthChanged() {
+        let widthMode: String
+        switch widgetWidthControl.selectedSegment {
+        case 0: widthMode = "compact"
+        case 1: widthMode = "medium"
+        case 2: widthMode = "wide"
+        case 3: widthMode = "max"
+        default: widthMode = "max"
+        }
+        UserDefaults.standard.set(widthMode, forKey: Self.keyWidgetWidth)
+        NotificationCenter.default.post(name: Notification.Name("io.github.ridhaaf.lirik.widgetWidthChanged"), object: nil)
     }
 
     @objc private func onPlayerChanged() {
