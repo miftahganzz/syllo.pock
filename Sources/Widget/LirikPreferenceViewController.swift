@@ -677,7 +677,8 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
                 "Sonora Saja",
                 "QuickTime Saja",
                 "IINA Saja",
-                "VLC Saja"
+                "VLC Saja",
+                "Browser Saja (YouTube/SoundCloud)"
             ])
         } else {
             playerPopUp.addItems(withTitles: [
@@ -687,7 +688,8 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
                 "Sonora Only",
                 "QuickTime Only",
                 "IINA Only",
-                "VLC Only"
+                "VLC Only",
+                "Browser Only (YouTube/SoundCloud)"
             ])
         }
         playerPopUp.selectItem(at: max(0, selectedPlayerIdx))
@@ -822,6 +824,8 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
             playerPopUp.selectItem(at: 5)
         } else if player == "vlc" {
             playerPopUp.selectItem(at: 6)
+        } else if player == "browser" {
+            playerPopUp.selectItem(at: 7)
         } else {
             playerPopUp.selectItem(at: 0)
         }
@@ -1029,6 +1033,7 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         case 4: player = "quicktime"
         case 5: player = "iina"
         case 6: player = "vlc"
+        case 7: player = "browser"
         default: player = "auto"
         }
         UserDefaults.standard.set(player, forKey: Self.keyPreferredPlayer)

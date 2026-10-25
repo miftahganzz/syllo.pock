@@ -112,6 +112,12 @@ final class AppleScriptBackend {
             }
             return nil
 
+        case "browser":
+            if isAppRunning(bundleIdentifier: "com.google.Chrome") || isAppRunning(bundleIdentifier: "com.apple.Safari") {
+                return queryBrowser()
+            }
+            return nil
+
         default:
             // "auto" mode: Spotify -> Apple Music -> Sonora -> QuickTime Player -> IINA -> VLC
             // 1. If Sonora is running and is the actively playing MediaRemote app, prioritize it!
@@ -134,6 +140,9 @@ final class AppleScriptBackend {
                 return track
             }
             if isAppRunning(bundleIdentifier: "org.videolan.vlc"), let track = queryVLC() {
+                return track
+            }
+            if let track = queryBrowser() {
                 return track
             }
             return nil
@@ -524,6 +533,100 @@ final class AppleScriptBackend {
         )
     }
 
+    // MARK: - Browser (YouTube / YouTube Music / SoundCloud)
+
+    private var browserActiveTitle: String = ""
+    private var browserPlaybackElapsed: TimeInterval = 0.0
+    private var browserLastTick: Date = Date()
+
+    private func queryBrowser() -> NowPlayingTrack? {
+        var rawResult: String?
+
+        // 1. Check Google Chrome
+        if isAppRunning(bundleIdentifier: "com.google.Chrome") {
+            let script = """
+            tell application "Google Chrome"
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        set u to URL of t
+                        if u contains "youtube.com/watch" or u contains "music.youtube.com/watch" or u contains "soundcloud.com" then
+                            return (title of t) & "|||" & u
+                        end if
+                    end repeat
+                end repeat
+            end tell
+            return "none"
+            """
+            if let res = runAppleScript(script, appName: "Google Chrome"), res != "none" {
+                rawResult = res
+            }
+        }
+
+        // 2. Check Safari
+        if rawResult == nil && isAppRunning(bundleIdentifier: "com.apple.Safari") {
+            let script = """
+            tell application "Safari"
+                repeat with w in windows
+                    repeat with t in tabs of w
+                        set u to URL of t
+                        if u contains "youtube.com/watch" or u contains "music.youtube.com/watch" or u contains "soundcloud.com" then
+                            return (name of t) & "|||" & u
+                        end if
+                    end repeat
+                end repeat
+            end tell
+            return "none"
+            """
+            if let res = runAppleScript(script, appName: "Safari"), res != "none" {
+                rawResult = res
+            }
+        }
+
+        guard let result = rawResult, !result.isEmpty else {
+            browserActiveTitle = ""
+            browserPlaybackElapsed = 0.0
+            return nil
+        }
+
+        let parts = result.components(separatedBy: "|||")
+        var rawTitle = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Strip site suffixes
+        for suffix in [" - YouTube Music", " - YouTube", " - SoundCloud", " - Soundcloud"] {
+            if rawTitle.hasSuffix(suffix) {
+                rawTitle = String(rawTitle.dropLast(suffix.count))
+            }
+        }
+
+        // Strip notification badge like "(18) "
+        rawTitle = rawTitle.replacingOccurrences(of: "^\\(\\d+\\)\\s*", with: "", options: .regularExpression)
+
+        let parsed = parseMediaTitleAndArtist(from: rawTitle)
+        guard !parsed.title.isEmpty else { return nil }
+
+        let now = Date()
+        if parsed.title != browserActiveTitle {
+            browserActiveTitle = parsed.title
+            browserPlaybackElapsed = 0.0
+            browserLastTick = now
+        } else {
+            let dt = now.timeIntervalSince(browserLastTick)
+            browserPlaybackElapsed += max(0.0, dt)
+            browserLastTick = now
+        }
+
+        return NowPlayingTrack(
+            title: parsed.title,
+            artist: parsed.artist.isEmpty ? "YouTube Media" : parsed.artist,
+            album: "Browser Media",
+            duration: nil,
+            elapsedTime: browserPlaybackElapsed,
+            isPlaying: true,
+            source: .browser,
+            isAdvertisement: false
+        )
+    }
+
     // MARK: - Media Filename & Title Sanitization
 
     private func parseMediaTitleAndArtist(from rawFilename: String) -> (title: String, artist: String) {
@@ -607,6 +710,12 @@ final class AppleScriptBackend {
     }
 
     func togglePlayPause() {
+        let pref = UserDefaults.standard.string(forKey: "io.github.ridhaaf.lirik.preferredPlayer") ?? "auto"
+        if pref == "browser" {
+            toggleBrowserPlayPause()
+            return
+        }
+
         if isSonoraActiveNowPlaying() {
             mediaRemote.togglePlayPause()
         } else if isAppRunning(bundleIdentifier: "com.spotify.client") {
@@ -638,6 +747,30 @@ final class AppleScriptBackend {
             end tell
             """
             _ = runAppleScript(script, appName: "IINA")
+        } else if isAppRunning(bundleIdentifier: "com.google.Chrome") || isAppRunning(bundleIdentifier: "com.apple.Safari") {
+            toggleBrowserPlayPause()
+        }
+    }
+
+    private func toggleBrowserPlayPause() {
+        if isAppRunning(bundleIdentifier: "com.google.Chrome") {
+            let script = """
+            tell application "System Events"
+                tell process "Google Chrome"
+                    key code 49
+                end tell
+            end tell
+            """
+            _ = runAppleScript(script, appName: "Google Chrome")
+        } else if isAppRunning(bundleIdentifier: "com.apple.Safari") {
+            let script = """
+            tell application "System Events"
+                tell process "Safari"
+                    key code 49
+                end tell
+            end tell
+            """
+            _ = runAppleScript(script, appName: "Safari")
         }
     }
 
@@ -659,6 +792,9 @@ final class AppleScriptBackend {
         } else if isAppRunning(bundleIdentifier: "com.colliderli.iina") {
             iinaPlaybackElapsed = position
             iinaLastTick = Date()
+        } else if isAppRunning(bundleIdentifier: "com.google.Chrome") || isAppRunning(bundleIdentifier: "com.apple.Safari") {
+            browserPlaybackElapsed = position
+            browserLastTick = Date()
         }
     }
 
@@ -673,6 +809,12 @@ final class AppleScriptBackend {
             _ = runAppleScript("tell application \"VLC\" to next", appName: "VLC")
         } else if isAppRunning(bundleIdentifier: "com.apple.QuickTimePlayerX") {
             _ = runAppleScript("tell application \"QuickTime Player\" to if (count of documents) > 0 then step forward front document", appName: "QuickTime Player")
+        } else if isAppRunning(bundleIdentifier: "com.google.Chrome") {
+            let script = "tell application \"System Events\" to tell process \"Google Chrome\" to keystroke \"n\" using {shift down}"
+            _ = runAppleScript(script, appName: "Google Chrome")
+        } else if isAppRunning(bundleIdentifier: "com.apple.Safari") {
+            let script = "tell application \"System Events\" to tell process \"Safari\" to keystroke \"n\" using {shift down}"
+            _ = runAppleScript(script, appName: "Safari")
         }
     }
 
@@ -687,6 +829,12 @@ final class AppleScriptBackend {
             _ = runAppleScript("tell application \"VLC\" to previous", appName: "VLC")
         } else if isAppRunning(bundleIdentifier: "com.apple.QuickTimePlayerX") {
             _ = runAppleScript("tell application \"QuickTime Player\" to if (count of documents) > 0 then step backward front document", appName: "QuickTime Player")
+        } else if isAppRunning(bundleIdentifier: "com.google.Chrome") {
+            let script = "tell application \"System Events\" to tell process \"Google Chrome\" to keystroke \"p\" using {shift down}"
+            _ = runAppleScript(script, appName: "Google Chrome")
+        } else if isAppRunning(bundleIdentifier: "com.apple.Safari") {
+            let script = "tell application \"System Events\" to tell process \"Safari\" to keystroke \"p\" using {shift down}"
+            _ = runAppleScript(script, appName: "Safari")
         }
     }
 

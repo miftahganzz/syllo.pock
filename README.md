@@ -14,7 +14,9 @@
 
 **Syllo** is a high-performance, open-source macOS lyrics companion and Touch Bar widget that delivers real-time, buttery-smooth synchronized lyrics with **Apple Music Sing-style word-by-word karaoke highlighting**.
 
-Re-engineered from the ground up by **Miftah** for **macOS Ventura 13.0+** (including Sonoma & Sequoia), featuring native integration with **Spotify**, **Apple Music**, **Sonora**, **IINA**, **QuickTime Player**, and **VLC**.
+Re-engineered from the ground up by **Miftah** for **macOS Ventura 13.0+** (including Sonoma & Sequoia), featuring native integration with **Spotify**, **Apple Music**, **Sonora**, **YouTube / Browser Media (Chrome & Safari)**, **IINA**, **QuickTime Player**, and **VLC**.
+
+Powered by a robust **Multi-Provider Lyrics Engine** combining **LRCLIB**, **NetEase Cloud Music**, and **Kugou Music** with intelligent auto-failover.
 
 ---
 
@@ -54,8 +56,14 @@ Syllo features a modern grouped card preference interface built with **100% nati
 ### 🎬 Multi-Player & Video Support
 * **Spotify & Apple Music:** Native AppleScript & MediaRemote integration with album art extraction and 1-tap Heart/Like support.
 * **Sonora Music Player:** Native Rust/GPUI streaming player support (`dev.nolight.sonora`) via private MediaRemote bridge with instant embedded album art caching, timestamp-accurate elapsed tracking, and Touch Bar transport controls (play/pause, next/previous, seek).
+* **Browser Media (YouTube, YouTube Music, SoundCloud):** Automatic detection for active video/audio playing in **Google Chrome** and **Apple Safari**. Strips site noise and channel watermarks, provides real-time elapsed time calculation, and allows Touch Bar control (Play/Pause, Shift+N next video, Shift+P previous video).
 * **IINA Video Player:** High-precision native IPC bridge (`io.iina.lirik.iinaplugin`) reading `libmpv` state with microsecond accuracy.
 * **QuickTime Player & VLC:** Real-time document title, elapsed seconds, and play/pause tracking.
+
+### 🌐 Multi-Provider Lyrics Engine (Auto-Failover)
+* **Tier 1 — LRCLIB:** Primary source for word-by-word synced karaoke timestamps and community-vetted lyrics.
+* **Tier 2 — NetEase Cloud Music:** Secondary auto-failover engine with deep catalog coverage for Asian, Indonesian pop/indie, J-Pop/Anime, and K-Pop releases. Upgrades static lyrics from LRCLIB into fully synced LRC if available.
+* **Tier 3 — Kugou Music:** Tertiary fallback engine tapping into an extensive international and regional music database, ensuring near-universal lyric availability.
 
 ### 🪟 4 Display Modes & Surfaces
 1. **Touch Bar Widget:** Dual-line karaoke, dynamic album artwork, animated equalizer, and live vocal pitch meter.
@@ -108,6 +116,13 @@ Syllo features a modern grouped card preference interface built with **100% nati
 * **Sync Engine & Timekeeping:**
   * Implemented Phase-Locked Loop (PLL) clock synchronization to eliminate jitter and drift.
   * Syllable-weighted vocal cadence model for natural pacing on word-by-word lyrics.
+* **Multi-Provider Lyrics Engine (Auto-Failover):**
+  * Integrated **LRCLIB** (primary) ➔ **NetEase Cloud Music** (secondary) ➔ **Kugou Music** (tertiary).
+  * Automatically upgrades plain static lyrics into synchronized LRC when available on secondary providers.
+* **Browser Media & YouTube Support:**
+  * Added real-time tracking for **YouTube**, **YouTube Music**, and **SoundCloud** open in **Google Chrome** and **Safari**.
+  * Intelligently parses track and artist names while removing YouTube suffixes (`- YouTube`) and notification indicators.
+  * Added Touch Bar transport controls (Play/Pause, Next Video Shift+N, Previous Video Shift+P).
 * **Multi-Player Support:**
   * Added native integration for **Sonora** (`sonorahq/sonora` / `dev.nolight.sonora`), the fast native Rust/GPUI music client.
   * Added MediaRemote bridge with instant embedded album art caching, timestamp-based elapsed time calculation, and Touch Bar transport controls (play/pause, next/previous, timeline seek).

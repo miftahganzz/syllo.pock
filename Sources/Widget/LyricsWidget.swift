@@ -128,7 +128,7 @@ class LyricsWidget: NSObject, PKWidget {
     // MARK: - Logic Dependencies
 
     private let nowPlayingWatcher = NowPlayingWatcher()
-    private let lrclibClient = LRCLIBClient()
+    private let lyricsProvider = LyricsProviderService.shared
     private let lyricsCache = LyricsCache()
     private let offlineVault = OfflineLyricsVault.shared
     private let albumArtService = AlbumArtService()
@@ -1123,66 +1123,61 @@ class LyricsWidget: NSObject, PKWidget {
             }
         }
 
-        // 3. Online Fetch via LRCLIB
+        // 3. Online Fetch via Multi-Provider Engine (LRCLIB -> NetEase -> Kugou)
         inFlightFetchTask = Task { [weak self] in
             guard let self else { return }
 
-            do {
-                let result = try await self.lrclibClient.fetchLyrics(
-                    title: track.title,
-                    artist: track.artist,
-                    album: track.album,
-                    duration: track.duration
+            let result = await self.lyricsProvider.fetchLyrics(
+                title: track.title,
+                artist: track.artist,
+                album: track.album,
+                duration: track.duration
+            )
+
+            guard !Task.isCancelled, self.activeTrackKey == expectedKey else { return }
+
+            let cachedEntry: CachedLyrics
+            let newState: LyricsWidgetUIState
+
+            switch result {
+            case .synced(let source, let lrcText, _):
+                NSLog("[LyricsWidget] Loaded synced lyrics from source: \(source)")
+                let parsedLines = LRCParser.parse(lrcText)
+                cachedEntry = CachedLyrics(
+                    lrclibID: nil,
+                    trackKey: expectedKey,
+                    lyricsState: .synced(lines: parsedLines, rawLRC: lrcText),
+                    cachedAt: Date()
                 )
+                newState = .synced(title: track.title, artist: track.artist, lines: parsedLines)
+                self.activeLines = parsedLines
 
-                guard !Task.isCancelled, self.activeTrackKey == expectedKey else { return }
+            case .plainOnly(let source, let plainText):
+                NSLog("[LyricsWidget] Loaded plain lyrics from source: \(source)")
+                cachedEntry = CachedLyrics(
+                    lrclibID: nil,
+                    trackKey: expectedKey,
+                    lyricsState: .plainOnly(text: plainText),
+                    cachedAt: Date()
+                )
+                newState = .staticOnly(title: track.title, artist: track.artist, text: plainText)
+                self.activeLines = []
 
-                let cachedEntry: CachedLyrics
-                let newState: LyricsWidgetUIState
-
-                switch result {
-                case .synced(let id, let lrcText, _):
-                    let parsedLines = LRCParser.parse(lrcText)
-                    cachedEntry = CachedLyrics(
-                        lrclibID: id,
-                        trackKey: expectedKey,
-                        lyricsState: .synced(lines: parsedLines, rawLRC: lrcText),
-                        cachedAt: Date()
-                    )
-                    newState = .synced(title: track.title, artist: track.artist, lines: parsedLines)
-                    self.activeLines = parsedLines
-
-                case .plainOnly(let id, let plainText):
-                    cachedEntry = CachedLyrics(
-                        lrclibID: id,
-                        trackKey: expectedKey,
-                        lyricsState: .plainOnly(text: plainText),
-                        cachedAt: Date()
-                    )
-                    newState = .staticOnly(title: track.title, artist: track.artist, text: plainText)
-                    self.activeLines = []
-
-                case .notFound:
-                    cachedEntry = CachedLyrics(
-                        lrclibID: nil,
-                        trackKey: expectedKey,
-                        lyricsState: .notFound,
-                        cachedAt: Date()
-                    )
-                    newState = .noLyricsFound(title: track.title, artist: track.artist)
-                    self.activeLines = []
-                }
-
-                guard !Task.isCancelled, self.activeTrackKey == expectedKey else { return }
-                self.lyricsCache.save(cachedEntry)
-                self.offlineVault.save(cachedEntry)
-                self.uiState = newState
-
-            } catch {
-                guard !Task.isCancelled, self.activeTrackKey == expectedKey else { return }
-                NSLog("[LyricsWidget] Network error loading lyrics: \(error.localizedDescription)")
-                self.uiState = .noLyricsFound(title: track.title, artist: track.artist)
+            case .notFound:
+                cachedEntry = CachedLyrics(
+                    lrclibID: nil,
+                    trackKey: expectedKey,
+                    lyricsState: .notFound,
+                    cachedAt: Date()
+                )
+                newState = .noLyricsFound(title: track.title, artist: track.artist)
+                self.activeLines = []
             }
+
+            guard !Task.isCancelled, self.activeTrackKey == expectedKey else { return }
+            self.lyricsCache.save(cachedEntry)
+            self.offlineVault.save(cachedEntry)
+            self.uiState = newState
         }
     }
 
