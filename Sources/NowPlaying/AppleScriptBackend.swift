@@ -142,9 +142,6 @@ final class AppleScriptBackend {
             if isAppRunning(bundleIdentifier: "org.videolan.vlc"), let track = queryVLC() {
                 return track
             }
-            if let track = queryBrowser() {
-                return track
-            }
             return nil
         }
     }
@@ -747,8 +744,6 @@ final class AppleScriptBackend {
             end tell
             """
             _ = runAppleScript(script, appName: "IINA")
-        } else if isAppRunning(bundleIdentifier: "com.google.Chrome") || isAppRunning(bundleIdentifier: "com.apple.Safari") {
-            toggleBrowserPlayPause()
         }
     }
 
@@ -775,6 +770,13 @@ final class AppleScriptBackend {
     }
 
     func seek(to position: TimeInterval) {
+        let pref = UserDefaults.standard.string(forKey: "io.github.ridhaaf.lirik.preferredPlayer") ?? "auto"
+        if pref == "browser" {
+            browserPlaybackElapsed = position
+            browserLastTick = Date()
+            return
+        }
+
         if isSonoraActiveNowPlaying() {
             mediaRemote.seek(to: position)
         } else if isAppRunning(bundleIdentifier: "com.spotify.client") {
@@ -792,13 +794,22 @@ final class AppleScriptBackend {
         } else if isAppRunning(bundleIdentifier: "com.colliderli.iina") {
             iinaPlaybackElapsed = position
             iinaLastTick = Date()
-        } else if isAppRunning(bundleIdentifier: "com.google.Chrome") || isAppRunning(bundleIdentifier: "com.apple.Safari") {
-            browserPlaybackElapsed = position
-            browserLastTick = Date()
         }
     }
 
     func nextTrack() {
+        let pref = UserDefaults.standard.string(forKey: "io.github.ridhaaf.lirik.preferredPlayer") ?? "auto"
+        if pref == "browser" {
+            if isAppRunning(bundleIdentifier: "com.google.Chrome") {
+                let script = "tell application \"System Events\" to tell process \"Google Chrome\" to keystroke \"n\" using {shift down}"
+                _ = runAppleScript(script, appName: "Google Chrome")
+            } else if isAppRunning(bundleIdentifier: "com.apple.Safari") {
+                let script = "tell application \"System Events\" to tell process \"Safari\" to keystroke \"n\" using {shift down}"
+                _ = runAppleScript(script, appName: "Safari")
+            }
+            return
+        }
+
         if isSonoraActiveNowPlaying() {
             mediaRemote.nextTrack()
         } else if isAppRunning(bundleIdentifier: "com.spotify.client") {
@@ -809,16 +820,22 @@ final class AppleScriptBackend {
             _ = runAppleScript("tell application \"VLC\" to next", appName: "VLC")
         } else if isAppRunning(bundleIdentifier: "com.apple.QuickTimePlayerX") {
             _ = runAppleScript("tell application \"QuickTime Player\" to if (count of documents) > 0 then step forward front document", appName: "QuickTime Player")
-        } else if isAppRunning(bundleIdentifier: "com.google.Chrome") {
-            let script = "tell application \"System Events\" to tell process \"Google Chrome\" to keystroke \"n\" using {shift down}"
-            _ = runAppleScript(script, appName: "Google Chrome")
-        } else if isAppRunning(bundleIdentifier: "com.apple.Safari") {
-            let script = "tell application \"System Events\" to tell process \"Safari\" to keystroke \"n\" using {shift down}"
-            _ = runAppleScript(script, appName: "Safari")
         }
     }
 
     func previousTrack() {
+        let pref = UserDefaults.standard.string(forKey: "io.github.ridhaaf.lirik.preferredPlayer") ?? "auto"
+        if pref == "browser" {
+            if isAppRunning(bundleIdentifier: "com.google.Chrome") {
+                let script = "tell application \"System Events\" to tell process \"Google Chrome\" to keystroke \"p\" using {shift down}"
+                _ = runAppleScript(script, appName: "Google Chrome")
+            } else if isAppRunning(bundleIdentifier: "com.apple.Safari") {
+                let script = "tell application \"System Events\" to tell process \"Safari\" to keystroke \"p\" using {shift down}"
+                _ = runAppleScript(script, appName: "Safari")
+            }
+            return
+        }
+
         if isSonoraActiveNowPlaying() {
             mediaRemote.previousTrack()
         } else if isAppRunning(bundleIdentifier: "com.spotify.client") {
@@ -829,12 +846,6 @@ final class AppleScriptBackend {
             _ = runAppleScript("tell application \"VLC\" to previous", appName: "VLC")
         } else if isAppRunning(bundleIdentifier: "com.apple.QuickTimePlayerX") {
             _ = runAppleScript("tell application \"QuickTime Player\" to if (count of documents) > 0 then step backward front document", appName: "QuickTime Player")
-        } else if isAppRunning(bundleIdentifier: "com.google.Chrome") {
-            let script = "tell application \"System Events\" to tell process \"Google Chrome\" to keystroke \"p\" using {shift down}"
-            _ = runAppleScript(script, appName: "Google Chrome")
-        } else if isAppRunning(bundleIdentifier: "com.apple.Safari") {
-            let script = "tell application \"System Events\" to tell process \"Safari\" to keystroke \"p\" using {shift down}"
-            _ = runAppleScript(script, appName: "Safari")
         }
     }
 
