@@ -13,6 +13,7 @@ import Foundation
 enum NowPlayingSource: String, Sendable {
     case spotify = "Spotify"
     case appleMusic = "Apple Music"
+    case sonora = "Sonora"
     case quickTime = "QuickTime Player"
     case iina = "IINA"
     case vlc = "VLC"

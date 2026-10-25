@@ -671,18 +671,20 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         playerPopUp.removeAllItems()
         if isID {
             playerPopUp.addItems(withTitles: [
-                "Otomatis (Spotify, Apple Music, VLC, dll)",
+                "Otomatis (Spotify, Apple Music, Sonora, dll)",
                 "Spotify Saja",
                 "Apple Music Saja",
+                "Sonora Saja",
                 "QuickTime Saja",
                 "IINA Saja",
                 "VLC Saja"
             ])
         } else {
             playerPopUp.addItems(withTitles: [
-                "Auto-detect (Spotify, Apple Music, VLC, etc)",
+                "Auto-detect (Spotify, Apple Music, Sonora, etc)",
                 "Spotify Only",
                 "Apple Music Only",
+                "Sonora Only",
                 "QuickTime Only",
                 "IINA Only",
                 "VLC Only"
@@ -812,12 +814,14 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
             playerPopUp.selectItem(at: 1)
         } else if player == "music" {
             playerPopUp.selectItem(at: 2)
-        } else if player == "quicktime" {
+        } else if player == "sonora" {
             playerPopUp.selectItem(at: 3)
-        } else if player == "iina" {
+        } else if player == "quicktime" {
             playerPopUp.selectItem(at: 4)
-        } else if player == "vlc" {
+        } else if player == "iina" {
             playerPopUp.selectItem(at: 5)
+        } else if player == "vlc" {
+            playerPopUp.selectItem(at: 6)
         } else {
             playerPopUp.selectItem(at: 0)
         }
@@ -1021,9 +1025,10 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         switch playerPopUp.indexOfSelectedItem {
         case 1: player = "spotify"
         case 2: player = "music"
-        case 3: player = "quicktime"
-        case 4: player = "iina"
-        case 5: player = "vlc"
+        case 3: player = "sonora"
+        case 4: player = "quicktime"
+        case 5: player = "iina"
+        case 6: player = "vlc"
         default: player = "auto"
         }
         UserDefaults.standard.set(player, forKey: Self.keyPreferredPlayer)

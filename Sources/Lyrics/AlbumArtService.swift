@@ -14,6 +14,8 @@ import CryptoKit
 /// Fetches and caches high-fidelity album artwork directly from Spotify/Music CDN with iTunes fallback.
 final class AlbumArtService: @unchecked Sendable {
 
+    static let shared = AlbumArtService()
+
     // MARK: - Cache
 
     /// In-memory cache for instant access to recently-used artwork.
@@ -39,6 +41,12 @@ final class AlbumArtService: @unchecked Sendable {
     }
 
     // MARK: - Public API
+
+    /// Stores an NSImage directly into memory cache (e.g. from MediaRemote artwork data)
+    func storeImageInMemory(_ image: NSImage, artist: String, album: String? = nil, title: String? = nil) {
+        let key = Self.makeArtworkKey(artist: artist, album: album ?? "", title: title ?? "")
+        memoryCache.setObject(image, forKey: key as NSString)
+    }
 
     /// Fetches exact album artwork using direct player URL when available, with intelligent iTunes track search fallback.
     func fetchArtwork(

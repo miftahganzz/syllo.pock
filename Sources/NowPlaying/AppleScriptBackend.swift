@@ -22,6 +22,7 @@ final class AppleScriptBackend {
 
     // MARK: - State
 
+    private let mediaRemote = MediaRemoteBackend()
     private var pollTimer: Timer?
     private var onUpdate: ((NowPlayingTrack?) -> Void)?
     /// Callback fired when macOS blocks AppleScript with error -1743 (Automation Permission Denied)
@@ -87,6 +88,12 @@ final class AppleScriptBackend {
             }
             return nil
 
+        case "sonora":
+            if isAppRunning(bundleIdentifier: "dev.nolight.sonora") {
+                return querySonora()
+            }
+            return nil
+
         case "quicktime":
             if isAppRunning(bundleIdentifier: "com.apple.QuickTimePlayerX") {
                 return queryQuickTime()
@@ -106,11 +113,18 @@ final class AppleScriptBackend {
             return nil
 
         default:
-            // "auto" mode: Spotify -> Apple Music -> QuickTime Player -> IINA -> VLC
+            // "auto" mode: Spotify -> Apple Music -> Sonora -> QuickTime Player -> IINA -> VLC
+            // 1. If Sonora is running and is the actively playing MediaRemote app, prioritize it!
+            if isAppRunning(bundleIdentifier: "dev.nolight.sonora"), let track = querySonora(), track.isPlaying {
+                return track
+            }
             if isAppRunning(bundleIdentifier: "com.spotify.client"), let track = querySpotify() {
                 return track
             }
             if isAppRunning(bundleIdentifier: "com.apple.Music"), let track = queryAppleMusic() {
+                return track
+            }
+            if isAppRunning(bundleIdentifier: "dev.nolight.sonora"), let track = querySonora() {
                 return track
             }
             if isAppRunning(bundleIdentifier: "com.apple.QuickTimePlayerX"), let track = queryQuickTime() {
@@ -232,6 +246,38 @@ final class AppleScriptBackend {
             isPlaying: stateStr == "playing",
             source: .appleMusic,
             isAdvertisement: false
+        )
+    }
+
+    // MARK: - Sonora
+
+    private func querySonora() -> NowPlayingTrack? {
+        guard isAppRunning(bundleIdentifier: "dev.nolight.sonora") else { return nil }
+        guard let result = mediaRemote.fetchNowPlayingSync() else { return nil }
+
+        let app = NSRunningApplication(processIdentifier: result.pid)
+        let isSonora = app?.bundleIdentifier == "dev.nolight.sonora" ||
+                       app?.localizedName?.lowercased().contains("sonora") == true
+
+        guard isSonora, let baseTrack = result.track else { return nil }
+
+        // Cache artwork in memory if provided directly in MediaRemote payload
+        if let artworkData = result.rawInfo["kMRMediaRemoteNowPlayingInfoArtworkData"] as? Data,
+           let img = NSImage(data: artworkData) {
+            AlbumArtService.shared.storeImageInMemory(img, artist: baseTrack.artist, album: baseTrack.album, title: baseTrack.title)
+        }
+
+        return NowPlayingTrack(
+            title: baseTrack.title,
+            artist: baseTrack.artist,
+            album: baseTrack.album,
+            duration: baseTrack.duration,
+            elapsedTime: baseTrack.elapsedTime,
+            isPlaying: baseTrack.isPlaying,
+            source: .sonora,
+            trackID: nil,
+            isAdvertisement: false,
+            artworkURL: nil
         )
     }
 
@@ -548,8 +594,22 @@ final class AppleScriptBackend {
 
     // MARK: - Playback Controls
 
+    private func isSonoraActiveNowPlaying() -> Bool {
+        guard isAppRunning(bundleIdentifier: "dev.nolight.sonora") else { return false }
+        let pref = UserDefaults.standard.string(forKey: "io.github.ridhaaf.lirik.preferredPlayer") ?? "auto"
+        if pref == "sonora" { return true }
+        if pref == "auto", let mr = mediaRemote.fetchNowPlayingSync() {
+            let app = NSRunningApplication(processIdentifier: mr.pid)
+            return app?.bundleIdentifier == "dev.nolight.sonora" ||
+                   app?.localizedName?.lowercased().contains("sonora") == true
+        }
+        return false
+    }
+
     func togglePlayPause() {
-        if isAppRunning(bundleIdentifier: "com.spotify.client") {
+        if isSonoraActiveNowPlaying() {
+            mediaRemote.togglePlayPause()
+        } else if isAppRunning(bundleIdentifier: "com.spotify.client") {
             _ = runAppleScript("tell application \"Spotify\" to playpause", appName: "Spotify")
         } else if isAppRunning(bundleIdentifier: "com.apple.Music") {
             _ = runAppleScript("tell application \"Music\" to playpause", appName: "Apple Music")
@@ -582,12 +642,16 @@ final class AppleScriptBackend {
     }
 
     func seek(to position: TimeInterval) {
-        let posStr = String(format: "%.2f", position)
-        if isAppRunning(bundleIdentifier: "com.spotify.client") {
+        if isSonoraActiveNowPlaying() {
+            mediaRemote.seek(to: position)
+        } else if isAppRunning(bundleIdentifier: "com.spotify.client") {
+            let posStr = String(format: "%.2f", position)
             _ = runAppleScript("tell application \"Spotify\" to set player position to \(posStr)", appName: "Spotify")
         } else if isAppRunning(bundleIdentifier: "com.apple.Music") {
+            let posStr = String(format: "%.2f", position)
             _ = runAppleScript("tell application \"Music\" to set player position to \(posStr)", appName: "Apple Music")
         } else if isAppRunning(bundleIdentifier: "com.apple.QuickTimePlayerX") {
+            let posStr = String(format: "%.2f", position)
             _ = runAppleScript("tell application \"QuickTime Player\" to if (count of documents) > 0 then set current time of front document to \(posStr)", appName: "QuickTime Player")
         } else if isAppRunning(bundleIdentifier: "org.videolan.vlc") {
             let intPos = Int(position)
@@ -599,7 +663,9 @@ final class AppleScriptBackend {
     }
 
     func nextTrack() {
-        if isAppRunning(bundleIdentifier: "com.spotify.client") {
+        if isSonoraActiveNowPlaying() {
+            mediaRemote.nextTrack()
+        } else if isAppRunning(bundleIdentifier: "com.spotify.client") {
             _ = runAppleScript("tell application \"Spotify\" to next track", appName: "Spotify")
         } else if isAppRunning(bundleIdentifier: "com.apple.Music") {
             _ = runAppleScript("tell application \"Music\" to next track", appName: "Apple Music")
@@ -611,7 +677,9 @@ final class AppleScriptBackend {
     }
 
     func previousTrack() {
-        if isAppRunning(bundleIdentifier: "com.spotify.client") {
+        if isSonoraActiveNowPlaying() {
+            mediaRemote.previousTrack()
+        } else if isAppRunning(bundleIdentifier: "com.spotify.client") {
             _ = runAppleScript("tell application \"Spotify\" to previous track", appName: "Spotify")
         } else if isAppRunning(bundleIdentifier: "com.apple.Music") {
             _ = runAppleScript("tell application \"Music\" to previous track", appName: "Apple Music")

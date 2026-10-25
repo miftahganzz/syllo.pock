@@ -23,6 +23,18 @@ final class MediaRemoteBackend {
     private typealias RegisterForNotificationsFn =
         @convention(c) (DispatchQueue) -> Void
 
+    /// Callback signature for MRMediaRemoteGetNowPlayingApplicationPID.
+    private typealias GetNowPlayingPIDFn =
+        @convention(c) (DispatchQueue, @escaping (pid_t) -> Void) -> Void
+
+    /// Signature for MRMediaRemoteSendCommand.
+    private typealias SendCommandFn =
+        @convention(c) (Int32, AnyObject?) -> Bool
+
+    /// Signature for MRMediaRemoteSetElapsedTime.
+    private typealias SetElapsedTimeFn =
+        @convention(c) (Double) -> Void
+
     // MARK: - Known MediaRemote info-dictionary keys
     // These are CFString constants exported by MediaRemote.framework.
     // Discovered via nm / open-source projects; undocumented by Apple.
@@ -46,8 +58,13 @@ final class MediaRemoteBackend {
 
     private var getNowPlayingInfo: GetNowPlayingInfoFn?
     private var registerForNotifications: RegisterForNotificationsFn?
+    private var getNowPlayingPID: GetNowPlayingPIDFn?
+    private var sendCommand: SendCommandFn?
+    private var setElapsedTime: SetElapsedTimeFn?
+
     private var notificationObservers: [NSObjectProtocol] = []
     private var onUpdate: (([String: Any]) -> Void)?
+    private let queryQueue = DispatchQueue(label: "io.github.ridhaaf.lirik.mediaremote.query")
 
     /// Whether the framework loaded and symbols resolved successfully.
     private(set) var isAvailable: Bool = false
@@ -86,6 +103,17 @@ final class MediaRemoteBackend {
 
         getNowPlayingInfo = unsafeBitCast(getInfoPtr, to: GetNowPlayingInfoFn.self)
         registerForNotifications = unsafeBitCast(registerPtr, to: RegisterForNotificationsFn.self)
+
+        if let pidPtr = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteGetNowPlayingApplicationPID" as CFString) {
+            getNowPlayingPID = unsafeBitCast(pidPtr, to: GetNowPlayingPIDFn.self)
+        }
+        if let cmdPtr = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteSendCommand" as CFString) {
+            sendCommand = unsafeBitCast(cmdPtr, to: SendCommandFn.self)
+        }
+        if let elapsedPtr = CFBundleGetFunctionPointerForName(bundle, "MRMediaRemoteSetElapsedTime" as CFString) {
+            setElapsedTime = unsafeBitCast(elapsedPtr, to: SetElapsedTimeFn.self)
+        }
+
         isAvailable = true
 
         NSLog("[MediaRemoteBackend] Framework loaded, symbols resolved")
@@ -178,6 +206,54 @@ final class MediaRemoteBackend {
         onUpdate = nil
     }
 
+    // MARK: - Synchronous Query & Playback Controls
+
+    /// Synchronously fetches current now playing PID and parsed track info.
+    func fetchNowPlayingSync() -> (pid: pid_t, track: NowPlayingTrack?, rawInfo: [String: Any])? {
+        guard let getNowPlayingInfo, let getNowPlayingPID else { return nil }
+
+        var currentPID: pid_t = 0
+        var info: [String: Any] = [:]
+
+        let sema1 = DispatchSemaphore(value: 0)
+        getNowPlayingPID(queryQueue) { pid in
+            currentPID = pid
+            sema1.signal()
+        }
+        _ = sema1.wait(timeout: .now() + 0.04)
+
+        guard currentPID > 0 else { return nil }
+
+        let sema2 = DispatchSemaphore(value: 0)
+        getNowPlayingInfo(queryQueue) { dict in
+            info = dict
+            sema2.signal()
+        }
+        _ = sema2.wait(timeout: .now() + 0.04)
+
+        let track = parseInfo(info)
+        return (currentPID, track, info)
+    }
+
+    @discardableResult
+    func togglePlayPause() -> Bool {
+        return sendCommand?(2, nil) ?? false
+    }
+
+    @discardableResult
+    func nextTrack() -> Bool {
+        return sendCommand?(4, nil) ?? false
+    }
+
+    @discardableResult
+    func previousTrack() -> Bool {
+        return sendCommand?(5, nil) ?? false
+    }
+
+    func seek(to position: TimeInterval) {
+        setElapsedTime?(position)
+    }
+
     // MARK: - Internal
 
     private func refetchAndNotify() {
@@ -197,15 +273,26 @@ final class MediaRemoteBackend {
         let artist = info[Self.artistKey] as? String ?? "Unknown Artist"
         let album = info[Self.albumKey] as? String
         let duration = info[Self.durationKey] as? TimeInterval
-        let elapsed = info[Self.elapsedKey] as? TimeInterval
+        let rawElapsed = info[Self.elapsedKey] as? TimeInterval
         let playbackRate = info[Self.playbackRateKey] as? Double ?? 0.0
+
+        var effectiveElapsed = rawElapsed ?? 0.0
+        if playbackRate > 0, let timestamp = info["kMRMediaRemoteNowPlayingInfoTimestamp"] as? Date {
+            let delta = Date().timeIntervalSince(timestamp)
+            if delta > 0 {
+                effectiveElapsed += delta * playbackRate
+            }
+        }
+        if let duration = duration, duration > 0 {
+            effectiveElapsed = min(effectiveElapsed, duration)
+        }
 
         return NowPlayingTrack(
             title: title,
             artist: artist,
             album: album,
             duration: duration,
-            elapsedTime: elapsed,
+            elapsedTime: effectiveElapsed,
             isPlaying: playbackRate > 0,
             source: .unknown // MediaRemote doesn't reliably expose which app is playing
         )

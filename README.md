@@ -14,7 +14,7 @@
 
 **Syllo** is a high-performance, open-source macOS lyrics companion and Touch Bar widget that delivers real-time, buttery-smooth synchronized lyrics with **Apple Music Sing-style word-by-word karaoke highlighting**.
 
-Re-engineered from the ground up by **Miftah** for **macOS Ventura 13.0+** (including Sonoma & Sequoia), featuring native integration with **Spotify**, **Apple Music**, **IINA**, **QuickTime Player**, and **VLC**.
+Re-engineered from the ground up by **Miftah** for **macOS Ventura 13.0+** (including Sonoma & Sequoia), featuring native integration with **Spotify**, **Apple Music**, **Sonora**, **IINA**, **QuickTime Player**, and **VLC**.
 
 ---
 
@@ -53,6 +53,7 @@ Syllo features a modern grouped card preference interface built with **100% nati
 
 ### 🎬 Multi-Player & Video Support
 * **Spotify & Apple Music:** Native AppleScript & MediaRemote integration with album art extraction and 1-tap Heart/Like support.
+* **Sonora Music Player:** Native Rust/GPUI streaming player support (`dev.nolight.sonora`) via private MediaRemote bridge with instant embedded album art caching, timestamp-accurate elapsed tracking, and Touch Bar transport controls (play/pause, next/previous, seek).
 * **IINA Video Player:** High-precision native IPC bridge (`io.iina.lirik.iinaplugin`) reading `libmpv` state with microsecond accuracy.
 * **QuickTime Player & VLC:** Real-time document title, elapsed seconds, and play/pause tracking.
 
@@ -107,6 +108,9 @@ Syllo features a modern grouped card preference interface built with **100% nati
 * **Sync Engine & Timekeeping:**
   * Implemented Phase-Locked Loop (PLL) clock synchronization to eliminate jitter and drift.
   * Syllable-weighted vocal cadence model for natural pacing on word-by-word lyrics.
+* **Multi-Player Support:**
+  * Added native integration for **Sonora** (`sonorahq/sonora` / `dev.nolight.sonora`), the fast native Rust/GPUI music client.
+  * Added MediaRemote bridge with instant embedded album art caching, timestamp-based elapsed time calculation, and Touch Bar transport controls (play/pause, next/previous, timeline seek).
 * **IINA & VLC Bridge:**
   * Added native `libmpv` IPC socket connection for microsecond-precise video player lyric synchronization.
 
@@ -117,7 +121,7 @@ Syllo features a modern grouped card preference interface built with **100% nati
 * **macOS:** macOS Ventura 13.0 or later (fully compatible with macOS 13 Ventura, macOS 14 Sonoma, and macOS 15 Sequoia+).
 * **Architecture:** Universal Binary (`arm64` Apple Silicon + `x86_64` Intel).
 * **Host App:** [Pock](https://pock.app) (v0.9.0 or later).
-* **Supported Players:** Spotify (Free/Premium), Apple Music, IINA (with plugin), QuickTime Player, VLC.
+* **Supported Players:** Spotify (Free/Premium), Apple Music, Sonora (dev.nolight.sonora), IINA (with plugin), QuickTime Player, VLC.
 
 ---
 
