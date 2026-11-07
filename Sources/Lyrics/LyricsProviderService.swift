@@ -15,7 +15,7 @@ enum LyricsProviderResult: Sendable, Equatable {
     case notFound
 }
 
-/// Multi-provider engine managing LRCLIB, NetEase Cloud Music, and Kugou with auto-failover.
+/// Multi-provider engine managing LRCLIB + 3 Automatic Fallbacks (NetEase, QQ Music, Kugou).
 final class LyricsProviderService: Sendable {
 
     static let shared = LyricsProviderService()
@@ -27,7 +27,7 @@ final class LyricsProviderService: Sendable {
         self.session = session
     }
 
-    /// Fetches lyrics attempting LRCLIB first, then NetEase, then Kugou.
+    /// Fetches lyrics attempting LRCLIB (Primary), then NetEase (Fallback 1), then QQ Music (Fallback 2), then Kugou (Fallback 3).
     func fetchLyrics(
         title: String,
         artist: String,
@@ -49,13 +49,17 @@ final class LyricsProviderService: Sendable {
                 NSLog("[LyricsProvider] Matched via LRCLIB (Synced)")
                 return .synced(source: "LRCLIB", lrcText: lrcText, plainLyrics: plain)
             case .plainOnly(_, let plainText):
-                // If only plain text found on LRCLIB, check NetEase & Kugou for synced LRC first!
+                // If only plain text found on LRCLIB, query fallbacks for synced LRC before settling!
                 if let netEaseLRC = await fetchNetEaseLyrics(title: cleanTitle, artist: cleanArtist) {
-                    NSLog("[LyricsProvider] Upgraded to Synced via NetEase Cloud Music")
+                    NSLog("[LyricsProvider] Upgraded to Synced via NetEase Cloud Music (Fallback 1)")
                     return .synced(source: "NetEase", lrcText: netEaseLRC, plainLyrics: plainText)
                 }
+                if let qqLRC = await fetchQQMusicLyrics(title: cleanTitle, artist: cleanArtist) {
+                    NSLog("[LyricsProvider] Upgraded to Synced via QQ Music (Fallback 2)")
+                    return .synced(source: "QQ Music", lrcText: qqLRC, plainLyrics: plainText)
+                }
                 if let kugouLRC = await fetchKugouLyrics(title: cleanTitle, artist: cleanArtist) {
-                    NSLog("[LyricsProvider] Upgraded to Synced via Kugou")
+                    NSLog("[LyricsProvider] Upgraded to Synced via Kugou (Fallback 3)")
                     return .synced(source: "Kugou", lrcText: kugouLRC, plainLyrics: plainText)
                 }
                 return .plainOnly(source: "LRCLIB", plainText: plainText)
@@ -64,19 +68,25 @@ final class LyricsProviderService: Sendable {
             }
         }
 
-        // 2. Secondary: NetEase Cloud Music API (Rich catalog for Asian, J-Pop, K-Pop, Indie & Indonesian pop)
+        // 2. Fallback 1: NetEase Cloud Music API (Rich catalog for Asian, J-Pop, K-Pop, Indie & Indonesian pop)
         if let netEaseLRC = await fetchNetEaseLyrics(title: cleanTitle, artist: cleanArtist) {
-            NSLog("[LyricsProvider] Matched via NetEase Cloud Music")
+            NSLog("[LyricsProvider] Matched via NetEase Cloud Music (Fallback 1)")
             return .synced(source: "NetEase", lrcText: netEaseLRC, plainLyrics: nil)
         }
 
-        // 3. Tertiary: Kugou Music API (Vast fallback catalog for international & regional tracks)
+        // 3. Fallback 2: QQ Music API (Tencent Music - Vast licensed international & regional catalog)
+        if let qqLRC = await fetchQQMusicLyrics(title: cleanTitle, artist: cleanArtist) {
+            NSLog("[LyricsProvider] Matched via QQ Music (Fallback 2)")
+            return .synced(source: "QQ Music", lrcText: qqLRC, plainLyrics: nil)
+        }
+
+        // 4. Fallback 3: Kugou Music API (Comprehensive tertiary fallback database)
         if let kugouLRC = await fetchKugouLyrics(title: cleanTitle, artist: cleanArtist) {
-            NSLog("[LyricsProvider] Matched via Kugou Music")
+            NSLog("[LyricsProvider] Matched via Kugou Music (Fallback 3)")
             return .synced(source: "Kugou", lrcText: kugouLRC, plainLyrics: nil)
         }
 
-        NSLog("[LyricsProvider] No lyrics found across all providers for: \(cleanArtist) - \(cleanTitle)")
+        NSLog("[LyricsProvider] No lyrics found across all 4 providers (1 Primary + 3 Fallbacks) for: \(cleanArtist) - \(cleanTitle)")
         return .notFound
     }
 
@@ -130,6 +140,67 @@ final class LyricsProviderService: Sendable {
               let lrcJson = try? JSONSerialization.jsonObject(with: lrcData) as? [String: Any],
               let lrcDict = lrcJson["lrc"] as? [String: Any],
               let lrcText = lrcDict["lyric"] as? String,
+              !lrcText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        return lrcText
+    }
+
+    // MARK: - QQ Music Provider (Tencent)
+
+    private func fetchQQMusicLyrics(title: String, artist: String) async -> String? {
+        let query = "\(title) \(artist)".trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty,
+              let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
+              let searchUrl = URL(string: "https://c.y.qq.com/soso/fcgi-bin/client_search_cp?p=1&n=5&w=\(encoded)&format=json") else {
+            return nil
+        }
+
+        var req = URLRequest(url: searchUrl)
+        req.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", forHTTPHeaderField: "User-Agent")
+        req.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        req.timeoutInterval = 4.0
+
+        guard let (data, _) = try? await session.data(for: req),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let dataObj = json["data"] as? [String: Any],
+              let song = dataObj["song"] as? [String: Any],
+              let list = song["list"] as? [[String: Any]], !list.isEmpty else {
+            return nil
+        }
+
+        let cleanArtist = artist.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanTitle = title.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var bestMid: String?
+        for s in list {
+            let songName = (s["songname"] as? String ?? "").lowercased()
+            let singers = (s["singer"] as? [[String: Any]])?.compactMap { ($0["name"] as? String)?.lowercased() } ?? []
+            let artistMatches = cleanArtist.isEmpty || singers.contains(where: { $0.contains(cleanArtist) || cleanArtist.contains($0) })
+            let titleMatches = songName.contains(cleanTitle) || cleanTitle.contains(songName)
+
+            if artistMatches && titleMatches {
+                bestMid = s["songmid"] as? String
+                break
+            }
+        }
+
+        guard let songmid = bestMid ?? list.first?["songmid"] as? String,
+              let lyricUrl = URL(string: "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=\(songmid)&format=json&nobase64=0") else {
+            return nil
+        }
+
+        var lyricReq = URLRequest(url: lyricUrl)
+        lyricReq.setValue("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)", forHTTPHeaderField: "User-Agent")
+        lyricReq.setValue("https://y.qq.com/", forHTTPHeaderField: "Referer")
+        lyricReq.timeoutInterval = 4.0
+
+        guard let (lrcData, _) = try? await session.data(for: lyricReq),
+              let lrcJson = try? JSONSerialization.jsonObject(with: lrcData) as? [String: Any],
+              let lyricBase64 = lrcJson["lyric"] as? String,
+              let decodedData = Data(base64Encoded: lyricBase64),
+              let lrcText = String(data: decodedData, encoding: .utf8),
               !lrcText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return nil
         }

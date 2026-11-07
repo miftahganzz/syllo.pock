@@ -85,6 +85,8 @@ class LyricsWidget: NSObject, PKWidget {
     private let albumArtButton = PKButton(title: "", target: nil, action: nil)
     private let albumArtImageView = NSImageView()
     private let videoView = LoopingVideoView()
+    private let albumArtShimmerLayer = CAGradientLayer()
+    private var isAlbumArtMotionActive: Bool = false
     private var albumArtWidthConstraint: NSLayoutConstraint?
     private var albumArtHeightConstraint: NSLayoutConstraint?
     private var containerWidthConstraint: NSLayoutConstraint?
@@ -172,6 +174,7 @@ class LyricsWidget: NSObject, PKWidget {
         NSLog("[LyricsWidget] viewAppeared — starting NowPlayingWatcher")
         nowPlayingWatcher.startWatching()
         startSmoothKaraokeTimer()
+        updateAlbumArtMotion()
     }
 
     func viewDisappeared() {
@@ -179,6 +182,7 @@ class LyricsWidget: NSObject, PKWidget {
         inFlightFetchTask?.cancel()
         inFlightCanvasTask?.cancel()
         stopSmoothKaraokeTimer()
+        stopAlbumArtMotion()
         nowPlayingWatcher.stopWatching()
     }
 
@@ -200,11 +204,25 @@ class LyricsWidget: NSObject, PKWidget {
         videoView.isHidden = true
 
         // Album art button wrapper
+        albumArtButton.wantsLayer = true
+        albumArtButton.layer?.masksToBounds = false
         albumArtButton.target = self
         albumArtButton.action = #selector(handleAlbumArtTap)
         albumArtButton.isBordered = false
         albumArtButton.addSubview(albumArtImageView)
         albumArtButton.addSubview(videoView)
+
+        // Apple Music Motion Shimmer Layer
+        albumArtShimmerLayer.colors = [
+            NSColor.white.withAlphaComponent(0.0).cgColor,
+            NSColor.white.withAlphaComponent(0.25).cgColor,
+            NSColor.white.withAlphaComponent(0.0).cgColor
+        ]
+        albumArtShimmerLayer.locations = [0.0, 0.5, 1.0]
+        albumArtShimmerLayer.startPoint = CGPoint(x: 0, y: 0)
+        albumArtShimmerLayer.endPoint = CGPoint(x: 1, y: 1)
+        albumArtShimmerLayer.frame = CGRect(x: -30, y: 0, width: 25, height: 35)
+        albumArtImageView.layer?.addSublayer(albumArtShimmerLayer)
 
         albumArtImageView.translatesAutoresizingMaskIntoConstraints = false
         videoView.translatesAutoresizingMaskIntoConstraints = false
@@ -355,11 +373,21 @@ class LyricsWidget: NSObject, PKWidget {
         let rawLineDuration = lineEnd - lineStart
         let words = lineText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
 
-        // 1. Enhanced LRC with explicit word/syllable timestamps
+        // 1. Enhanced LRC with explicit word/syllable timestamps (Proportional Character-Length Mapping)
         if !explicitWords.isEmpty {
+            let totalChars = max(1, lineText.count)
             let activeWordIndex = explicitWords.lastIndex(where: { elapsed >= $0.timestamp }) ?? 0
-            let totalWords = Double(explicitWords.count)
-            let baseFraction = Double(activeWordIndex) / totalWords
+
+            // Compute exact character boundaries for this word within the line
+            var charOffset = 0
+            for i in 0..<activeWordIndex {
+                charOffset += explicitWords[i].text.count
+                if i < explicitWords.count - 1 { charOffset += 1 }
+            }
+            let currentWordLen = max(1, explicitWords[activeWordIndex].text.count)
+            let wordStartFraction = Double(charOffset) / Double(totalChars)
+            let wordEndFraction = Double(min(totalChars, charOffset + currentWordLen)) / Double(totalChars)
+            let wordSpan = max(0.001, wordEndFraction - wordStartFraction)
 
             let currentWordStart = explicitWords[activeWordIndex].timestamp
             let nextWordStart = (activeWordIndex + 1 < explicitWords.count)
@@ -368,22 +396,23 @@ class LyricsWidget: NSObject, PKWidget {
             let wordDuration = max(0.08, nextWordStart - currentWordStart)
             let rawWordFraction = min(1.0, max(0.0, (elapsed - currentWordStart) / wordDuration))
 
-            return max(0.0, min(1.0, baseFraction + (rawWordFraction / totalWords)))
+            let finalProgress = wordStartFraction + (rawWordFraction * wordSpan)
+            return max(0.0, min(1.0, finalProgress))
         }
 
         // 2. Standard LRC: Strict Proportional Vocal Flow Model
-        // Pace strictly follows the audio interval of the line so it never rushes or lags behind tempo.
+        // When there is an instrumental solo or pause before next line (> 6.5s), cap the vocal duration
         let effectiveLineDuration: Double
-        if rawLineDuration > 8.5 {
-            let estimatedMaxSinging = max(3.5, Double(max(1, words.count)) * 1.25)
+        if rawLineDuration > 6.5 {
+            let estimatedMaxSinging = max(2.5, Double(max(1, words.count)) * 0.95)
             effectiveLineDuration = min(rawLineDuration, estimatedMaxSinging)
         } else {
             effectiveLineDuration = rawLineDuration
         }
 
-        // Natural breath pause at the very end (5-8% of line)
-        let breathDuration = min(0.35, max(0.10, effectiveLineDuration * 0.06))
-        let vocalDuration = max(0.3, effectiveLineDuration - breathDuration)
+        // Natural breath pause at end (6% of line)
+        let breathDuration = min(0.30, max(0.08, effectiveLineDuration * 0.06))
+        let vocalDuration = max(0.25, effectiveLineDuration - breathDuration)
 
         let timeIntoLine = elapsed - lineStart
         if timeIntoLine >= vocalDuration {
@@ -426,7 +455,9 @@ class LyricsWidget: NSObject, PKWidget {
 
         let now = Date()
         let elapsedDelta = now.timeIntervalSince(lastPlaybackTimestamp)
-        let effectiveElapsed = max(0.0, lastKnownElapsed + elapsedDelta + currentTrackOffset)
+        // 120ms human psychoacoustic visual lead anticipation offset so the lyric highlight is perceived dead-on the beat:
+        let leadAnticipation: TimeInterval = 0.12
+        let effectiveElapsed = max(0.0, lastKnownElapsed + elapsedDelta + currentTrackOffset + leadAnticipation)
 
         // 1. Real-time 60 FPS line transition check:
         // Switch line immediately the exact frame its timestamp is reached!
@@ -845,13 +876,13 @@ class LyricsWidget: NSObject, PKWidget {
                 let diff = elapsed - currentExtrapolated
 
                 // If gap is significant (user seeked or track jumped), snap immediately
-                if abs(diff) > 0.75 || diff < -0.6 {
+                if abs(diff) > 0.60 || diff < -0.40 {
                     self.lastKnownElapsed = elapsed
                     self.lastPlaybackTimestamp = now
                     self.lastRenderedLineIndex = nil
                 } else {
-                    // Smooth Phase-Locked Loop: responsive anchor tracking without jitter
-                    let adjusted = currentExtrapolated + (diff * 0.45)
+                    // Responsive PLL phase locking with 80% convergence factor (fast tracking, zero sluggish drift)
+                    let adjusted = currentExtrapolated + (diff * 0.80)
                     self.lastKnownElapsed = adjusted
                     self.lastPlaybackTimestamp = now
                 }
@@ -859,6 +890,7 @@ class LyricsWidget: NSObject, PKWidget {
 
             DispatchQueue.main.async {
                 self.isCurrentlyPaused = !track.isPlaying
+                self.updateAlbumArtMotion()
 
                 if case .advertisement(_, let adIndex) = self.uiState {
                     self.renderAdvertisement(track: track, adIndex: adIndex)
@@ -957,6 +989,84 @@ class LyricsWidget: NSObject, PKWidget {
             name: Notification.Name("io.github.ridhaaf.lirik.widgetWidthChanged"),
             object: nil
         )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(onAnimatedArtPreferenceChanged),
+            name: Notification.Name("io.github.ridhaaf.lirik.animatedArtChanged"),
+            object: nil
+        )
+    }
+
+    @objc private func onAnimatedArtPreferenceChanged() {
+        DispatchQueue.main.async { [weak self] in
+            self?.updateAlbumArtMotion()
+        }
+    }
+
+    // MARK: - Apple Music Motion Album Artwork Animation
+
+    private func updateAlbumArtMotion() {
+        let defaults = UserDefaults.standard
+        let enableMotion = defaults.object(forKey: LirikPreferenceViewController.keyEnableAnimatedArtwork) as? Bool ?? true
+
+        guard enableMotion, !isCurrentlyPaused, !albumArtButton.isHidden else {
+            stopAlbumArtMotion()
+            return
+        }
+        startAlbumArtMotion()
+    }
+
+    private func startAlbumArtMotion() {
+        guard !albumArtButton.isHidden, !isCurrentlyPaused else { return }
+
+        // 1. Subtle Apple Music breathing scale
+        if albumArtImageView.layer?.animation(forKey: "appleMusicBreathing") == nil {
+            let breathAnim = CAKeyframeAnimation(keyPath: "transform.scale")
+            breathAnim.values = [1.0, 1.07, 1.03, 1.08, 1.0]
+            breathAnim.keyTimes = [0.0, 0.35, 0.55, 0.8, 1.0]
+            breathAnim.duration = 3.2
+            breathAnim.repeatCount = .infinity
+            breathAnim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            albumArtImageView.layer?.add(breathAnim, forKey: "appleMusicBreathing")
+        }
+
+        // 2. Dynamic Ambient Aura Glow
+        let glowColor = (dynamicArtworkColor ?? NSColor(red: 1.0, green: 0.35, blue: 0.5, alpha: 1.0)).cgColor
+        albumArtButton.layer?.shadowColor = glowColor
+        albumArtButton.layer?.shadowOffset = .zero
+        albumArtButton.layer?.shadowRadius = 6.0
+
+        if albumArtButton.layer?.animation(forKey: "appleMusicAuraPulse") == nil {
+            let pulseGlow = CABasicAnimation(keyPath: "shadowOpacity")
+            pulseGlow.fromValue = 0.40
+            pulseGlow.toValue = 0.95
+            pulseGlow.duration = 1.6
+            pulseGlow.autoreverses = true
+            pulseGlow.repeatCount = .infinity
+            pulseGlow.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            albumArtButton.layer?.add(pulseGlow, forKey: "appleMusicAuraPulse")
+        }
+
+        // 3. Apple Music diagonal light sweep
+        if albumArtShimmerLayer.animation(forKey: "appleMusicShimmer") == nil {
+            let shimmer = CABasicAnimation(keyPath: "transform.translation.x")
+            shimmer.fromValue = -35.0
+            shimmer.toValue = 55.0
+            shimmer.duration = 3.6
+            shimmer.repeatCount = .infinity
+            shimmer.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            albumArtShimmerLayer.add(shimmer, forKey: "appleMusicShimmer")
+        }
+        isAlbumArtMotionActive = true
+    }
+
+    private func stopAlbumArtMotion() {
+        albumArtImageView.layer?.removeAnimation(forKey: "appleMusicBreathing")
+        albumArtButton.layer?.removeAnimation(forKey: "appleMusicAuraPulse")
+        albumArtButton.layer?.shadowOpacity = 0.0
+        albumArtShimmerLayer.removeAnimation(forKey: "appleMusicShimmer")
+        isAlbumArtMotionActive = false
     }
 
     @objc private func onWidgetWidthPreferenceChanged() {
@@ -1766,6 +1876,7 @@ class LyricsWidget: NSObject, PKWidget {
         guard showArt else {
             DispatchQueue.main.async { [weak self] in
                 self?.albumArtButton.isHidden = true
+                self?.stopAlbumArtMotion()
             }
             return
         }
@@ -1800,6 +1911,7 @@ class LyricsWidget: NSObject, PKWidget {
                     self.karaokeView.activeColor = activeColor
                     self.equalizerView.barColor = activeColor
                     self.pitchMelodyVisualizer.barColor = activeColor
+                    self.updateAlbumArtMotion()
                 } else {
                     self.loadedArtworkImage = nil
                     let placeholder = NSImage(
@@ -1809,6 +1921,7 @@ class LyricsWidget: NSObject, PKWidget {
                     self.albumArtImageView.image = placeholder
                     self.albumArtButton.isHidden = false
                     self.dynamicArtworkColor = nil
+                    self.updateAlbumArtMotion()
                 }
             }
         }

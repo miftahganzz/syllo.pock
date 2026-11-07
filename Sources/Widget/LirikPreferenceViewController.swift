@@ -44,6 +44,7 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
     static let keyPreferredPlayer = "io.github.ridhaaf.lirik.preferredPlayer"
     static let keyAdAudioBehavior = "io.github.ridhaaf.lirik.adAudioBehavior"
     static let keyShowAlbumArt = "io.github.ridhaaf.lirik.showAlbumArt"
+    static let keyEnableAnimatedArtwork = "io.github.ridhaaf.lirik.enableAnimatedArtwork"
     static let keyAlbumArtSize = "io.github.ridhaaf.lirik.albumArtSize"
     static let keyEnableCanvas = "io.github.ridhaaf.lirik.enableCanvas"
     static let keyShowTrackInfo = "io.github.ridhaaf.lirik.showTrackInfo"
@@ -112,6 +113,7 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
     private let playerPopUp = NSPopUpButton()
     private let adAudioPopUp = NSPopUpButton()
     private let albumArtCheckbox = NSButton(checkboxWithTitle: "Sampul Album", target: nil, action: nil)
+    private let animatedArtCheckbox = NSButton(checkboxWithTitle: "Animasi Sampul (Apple Music)", target: nil, action: nil)
     private let albumArtSizeControl = NSSegmentedControl(labels: ["Kecil", "Sedang", "Besar"], trackingMode: .selectOne, target: nil, action: nil)
     private let canvasCheckbox = NSButton(checkboxWithTitle: "Spotify Canvas Looping", target: nil, action: nil)
     private let trackInfoCheckbox = NSButton(checkboxWithTitle: "Badge Info Lagu", target: nil, action: nil)
@@ -353,6 +355,7 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         // Card 2: Album Artwork & Media Visuals
         let visualsGrid = make2ColumnGrid(items: [
             (albumArtCheckbox, "photo.artframe"),
+            (animatedArtCheckbox, "sparkles"),
             (canvasCheckbox, "film.fill"),
             (trackInfoCheckbox, "info.circle.fill"),
             (pauseIconCheckbox, "pause.circle.fill")
@@ -724,6 +727,7 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         adAudioPopUp.selectItem(at: max(0, selectedAdIdx))
 
         albumArtCheckbox.title = isID ? "Sampul Album" : "Album Artwork"
+        animatedArtCheckbox.title = isID ? "Animasi Sampul (Apple Music)" : "Apple Music Motion Cover"
         artSizeLabel.stringValue = isID ? "Ukuran Sampul:" : "Artwork Size:"
         albumArtSizeControl.setLabel(isID ? "Kecil" : "Small", forSegment: 0)
         albumArtSizeControl.setLabel(isID ? "Sedang" : "Medium", forSegment: 1)
@@ -889,6 +893,9 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         let showArt = defaults.object(forKey: Self.keyShowAlbumArt) as? Bool ?? true
         albumArtCheckbox.state = showArt ? .on : .off
 
+        let enableMotion = defaults.object(forKey: Self.keyEnableAnimatedArtwork) as? Bool ?? true
+        animatedArtCheckbox.state = enableMotion ? .on : .off
+
         let artSize = defaults.object(forKey: Self.keyAlbumArtSize) as? Int ?? 1
         albumArtSizeControl.selectedSegment = max(0, min(artSize, 2))
 
@@ -959,6 +966,9 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
 
         albumArtCheckbox.target = self
         albumArtCheckbox.action = #selector(onAlbumArtCheckboxChanged)
+
+        animatedArtCheckbox.target = self
+        animatedArtCheckbox.action = #selector(onAnimatedArtChanged)
 
         albumArtSizeControl.target = self
         albumArtSizeControl.action = #selector(onAlbumArtSizeChanged)
@@ -1139,6 +1149,12 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         let show = albumArtCheckbox.state == .on
         UserDefaults.standard.set(show, forKey: Self.keyShowAlbumArt)
         NotificationCenter.default.post(name: Notification.Name("io.github.ridhaaf.lirik.albumArtChanged"), object: nil)
+    }
+
+    @objc private func onAnimatedArtChanged() {
+        let enable = animatedArtCheckbox.state == .on
+        UserDefaults.standard.set(enable, forKey: Self.keyEnableAnimatedArtwork)
+        NotificationCenter.default.post(name: Notification.Name("io.github.ridhaaf.lirik.animatedArtChanged"), object: nil)
     }
 
     @objc private func onAlbumArtSizeChanged() {
