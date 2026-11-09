@@ -23,47 +23,37 @@ enum LyricsWidgetUIState: Equatable {
     case synced(title: String, artist: String, lines: [LRCLine])
 }
 
-/// Sonora-inspired Live Clock: smooth time continuity with zero-stutter blending
-private struct LiveClock {
+/// Real-time continuous monotonic clock (Zero latency, true 1:1 playback tracking)
+private struct RealtimeClock {
     var base: TimeInterval = 0.0
-    var since: Date? = nil
-    var correction: Double = 0.0
-    var settle: Double = 1.0
+    var timestamp: Date = Date()
+    var isRunning: Bool = false
 
-    mutating func reset(at: TimeInterval, running: Bool) {
-        base = at
-        since = running ? Date() : nil
-        correction = 0.0
-        settle = 1.0
+    mutating func reset(at pos: TimeInterval, running: Bool) {
+        base = pos
+        timestamp = Date()
+        isRunning = running
     }
 
-    mutating func correct(toward: TimeInterval) {
-        let now = Date()
-        let shown = self.at(now)
-        let gap = toward - shown
-        if abs(gap) > 0.60 || gap < -0.40 {
-            base = toward
-            since = now
-            correction = 0.0
-            settle = 1.0
+    mutating func sync(to reported: TimeInterval, running: Bool) {
+        let current = now()
+        let diff = reported - current
+        if abs(diff) > 0.40 {
+            // User seeked or song jumped
+            base = reported
+            timestamp = Date()
         } else {
-            base = shown
-            since = now
-            correction = gap
-            settle = 1.0 + abs(gap)
+            // Real-time anchor update
+            base = reported
+            timestamp = Date()
         }
+        isRunning = running
     }
 
     func now() -> TimeInterval {
-        return self.at(Date())
-    }
-
-    func at(_ now: Date) -> TimeInterval {
-        guard let since = since else { return base }
-        let elapsed = max(0.0, now.timeIntervalSince(since))
-        let blend = min(1.0, max(0.0, elapsed / max(0.001, settle)))
-        let shifted = base + elapsed + (correction * blend)
-        return max(0.0, shifted)
+        guard isRunning else { return base }
+        let dt = Date().timeIntervalSince(timestamp)
+        return max(0.0, base + max(0.0, dt))
     }
 }
 
@@ -115,7 +105,9 @@ class LyricsWidget: NSObject, PKWidget {
     private let containerView = NSStackView()
     private let contentStackView = NSStackView()
     private let textStackView = NSStackView()
-    private let touchView = LirikTouchView()
+    private let tapButton = PKButton(title: "", target: nil, action: nil)
+    private var lastTapTimestamp: TimeInterval = 0
+    private var singleTapTimer: Timer?
 
     /// Progressive Apple Music Sing Karaoke View
     private let karaokeView = KaraokeLyricView()
@@ -149,7 +141,7 @@ class LyricsWidget: NSObject, PKWidget {
     private var karaokeSmoothTimer: Timer?
     private var lastPlaybackTimestamp: Date = Date()
     private var lastKnownElapsed: TimeInterval = 0
-    private var liveClock = LiveClock()
+    private var clock = RealtimeClock()
     private var currentLineStartTimestamp: TimeInterval = 0
     private var currentLineEndTimestamp: TimeInterval = 0
     private var currentLineWords: [LRCWord] = []
@@ -352,23 +344,27 @@ class LyricsWidget: NSObject, PKWidget {
 
         contentStackView.addArrangedSubview(textStackView)
 
-        // Configure touchView
-        touchView.addSubview(contentStackView)
+        // Configure native Touch Bar tapButton (PKButton for reliable touch routing in Pock)
+        tapButton.target = self
+        tapButton.action = #selector(handleTouchBarTapAction)
+        tapButton.title = ""
+        tapButton.isBordered = false
+        tapButton.addSubview(contentStackView)
         contentStackView.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            contentStackView.leadingAnchor.constraint(equalTo: touchView.leadingAnchor),
-            contentStackView.trailingAnchor.constraint(equalTo: touchView.trailingAnchor),
-            contentStackView.topAnchor.constraint(equalTo: touchView.topAnchor),
-            contentStackView.bottomAnchor.constraint(equalTo: touchView.bottomAnchor)
+            contentStackView.leadingAnchor.constraint(equalTo: tapButton.leadingAnchor),
+            contentStackView.trailingAnchor.constraint(equalTo: tapButton.trailingAnchor),
+            contentStackView.topAnchor.constraint(equalTo: tapButton.topAnchor),
+            contentStackView.bottomAnchor.constraint(equalTo: tapButton.bottomAnchor)
         ])
 
-        setupTouchViewCallbacks()
+        setupGesturesOnTapButton()
 
         containerView.addArrangedSubview(albumArtButton)
         containerView.addArrangedSubview(heartButton)
         containerView.addArrangedSubview(equalizerView)
         containerView.addArrangedSubview(pitchMelodyVisualizer)
-        containerView.addArrangedSubview(touchView)
+        containerView.addArrangedSubview(tapButton)
 
         // Dynamic width constraint
         containerView.translatesAutoresizingMaskIntoConstraints = false
@@ -441,15 +437,13 @@ class LyricsWidget: NSObject, PKWidget {
                 : lineEnd
 
             let sungEnd = currentWord.duration.map { currentWordStart + $0 } ?? nextWordStart
-            let isTail = (activeWordIndex + 1 >= explicitWords.count)
 
-            // Sonora's sweep travel model:
+            // Exact 1:1 real-time word travel model:
             let span = max(0.05, sungEnd - currentWordStart)
-            let travel = isTail ? max(0.18, span) : max(0.18, span * 1.4)
             let timeIntoWord = max(0.0, elapsed - currentWordStart)
-            let rawWordFraction = min(1.0, timeIntoWord / travel)
+            let rawWordFraction = min(1.0, timeIntoWord / span)
 
-            // Sonora's easeOutCubic curve for vocal attack & decay:
+            // Smooth cubic ease out
             let eased = 1.0 - pow(1.0 - rawWordFraction, 3.0)
             let wordProgress = (eased >= 0.98) ? 1.0 : eased
 
@@ -457,43 +451,25 @@ class LyricsWidget: NSObject, PKWidget {
             return max(0.0, min(1.0, finalProgress))
         }
 
-        // 2. Standard LRC: Sonora-inspired Rhythmic Syllable Attack Model
-        // Pace strictly follows the audio interval of the line with vocal attack curvature
-        let effectiveLineDuration: Double
-        if rawLineDuration > 6.5 {
-            let estimatedMaxSinging = max(2.5, Double(max(1, words.count)) * 0.95)
-            effectiveLineDuration = min(rawLineDuration, estimatedMaxSinging)
-        } else {
-            effectiveLineDuration = rawLineDuration
-        }
-
-        let breathDuration = min(0.30, max(0.08, effectiveLineDuration * 0.06))
-        let vocalDuration = max(0.25, effectiveLineDuration - breathDuration)
-
+        // 2. Standard LRC: Exact 1:1 real-time progress across words
         let timeIntoLine = elapsed - lineStart
-        if timeIntoLine >= vocalDuration {
+        if timeIntoLine >= rawLineDuration {
             return 1.0
         }
 
         guard words.count > 1 else {
-            let rawProgress = timeIntoLine / vocalDuration
-            let eased = 1.0 - pow(1.0 - rawProgress, 3.0)
-            return max(0.0, min(1.0, eased))
+            let rawProgress = timeIntoLine / rawLineDuration
+            return max(0.0, min(1.0, rawProgress))
         }
 
-        // Weight words by phonetic syllable length: vowels add duration, consonants add attack
-        let vowels: Set<Character> = ["a", "i", "u", "e", "o", "A", "I", "U", "E", "O"]
-        let wordWeights = words.map { word -> Double in
-            let vowelCount = word.filter { vowels.contains($0) }.count
-            let consonantCount = word.count - vowelCount
-            return max(1.0, Double(vowelCount) * 1.6 + Double(consonantCount) * 0.8)
-        }
+        // Weight words by length
+        let wordWeights = words.map { max(1.0, Double($0.count)) }
         let totalWeight = wordWeights.reduce(0.0, +)
 
         var wordSpans: [(start: Double, end: Double)] = []
         var runningTime = 0.0
         for w in wordWeights {
-            let wordDuration = (w / totalWeight) * vocalDuration
+            let wordDuration = (w / totalWeight) * rawLineDuration
             let start = runningTime
             let end = runningTime + wordDuration
             wordSpans.append((start: start, end: end))
@@ -519,25 +495,19 @@ class LyricsWidget: NSObject, PKWidget {
         let wordSpan = max(0.001, wordEndFraction - wordStartFraction)
 
         let activeSpan = wordSpans[activeWordIdx]
-        let wordDuration = max(0.08, activeSpan.end - activeSpan.start)
-        let isTail = (activeWordIdx == words.count - 1)
-        let travel = isTail ? max(0.18, wordDuration) : max(0.18, wordDuration * 1.3)
+        let wordDuration = max(0.05, activeSpan.end - activeSpan.start)
         let timeIntoWord = max(0.0, timeIntoLine - activeSpan.start)
-        let rawFraction = min(1.0, timeIntoWord / travel)
+        let rawFraction = min(1.0, timeIntoWord / wordDuration)
 
-        // Vocal attack cubic curve
-        let eased = 1.0 - pow(1.0 - rawFraction, 3.0)
-        let wordProgress = (eased >= 0.98) ? 1.0 : eased
-
-        let finalProgress = wordStartFraction + (wordProgress * wordSpan)
+        let finalProgress = wordStartFraction + (rawFraction * wordSpan)
         return max(0.0, min(1.0, finalProgress))
     }
 
     private func tickKaraokeProgress() {
         guard !isCurrentlyPaused, !isScrubbing, !activeLines.isEmpty else { return }
 
-        // Continuous LiveClock time tracking
-        let effectiveElapsed = max(0.0, liveClock.now() + currentTrackOffset)
+        // Continuous Real-time Clock time tracking (0ms delay)
+        let effectiveElapsed = max(0.0, clock.now() + currentTrackOffset)
 
         // 1. Real-time 60 FPS line transition check:
         // Switch line immediately the exact frame its timestamp is reached!
@@ -609,105 +579,101 @@ class LyricsWidget: NSObject, PKWidget {
         }
     }
 
-    // MARK: - Touch Callbacks (Single Tap, Double Tap, Long Press, Pan Seek, 2-Finger Gestures)
+    // MARK: - Touch Bar Interactions (Single Tap to Copy, Double Tap to Play/Pause, Pan to Seek)
 
-    private func setupTouchViewCallbacks() {
-        touchView.onSingleTap = { [weak self] in
-            self?.handleSingleTap()
-        }
+    private func setupGesturesOnTapButton() {
+        let pan = NSPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
+        tapButton.addGestureRecognizer(pan)
+    }
 
-        touchView.onDoubleTap = { [weak self] in
-            self?.handleDoubleTap()
-        }
+    @objc private func handleTouchBarTapAction() {
+        let now = Date().timeIntervalSince1970
+        let delta = now - lastTapTimestamp
 
-        touchView.onLongPress = { [weak self] in
-            self?.handleLongPressQuote()
-        }
-
-        // 2-Finger Horizontal Swipe -> Next / Prev Track
-        touchView.onTwoFingerSwipeHorizontal = { [weak self] dx in
-            guard let self, UserDefaults.standard.object(forKey: LirikPreferenceViewController.keyEnableGestures) as? Bool ?? true else { return }
-            if dx < -25 {
-                self.triggerHapticFeedback()
-                self.nowPlayingWatcher.nextTrack()
-                self.flashFeedbackText("Next Track")
-            } else if dx > 25 {
-                self.triggerHapticFeedback()
-                self.nowPlayingWatcher.previousTrack()
-                self.flashFeedbackText("Previous Track")
+        if delta < 0.38 {
+            // DOUBLE TAP DETECTED -> TOGGLE PLAY / PAUSE
+            singleTapTimer?.invalidate()
+            singleTapTimer = nil
+            lastTapTimestamp = 0
+            triggerHapticFeedback()
+            handleDoubleTap()
+        } else {
+            // SINGLE TAP -> SCHEDULE COPY
+            lastTapTimestamp = now
+            singleTapTimer?.invalidate()
+            singleTapTimer = Timer.scheduledTimer(withTimeInterval: 0.28, repeats: false) { [weak self] _ in
+                self?.handleSingleTap()
             }
         }
+    }
 
-        // 2-Finger Vertical Swipe -> Volume Adjust
-        touchView.onTwoFingerSwipeVertical = { [weak self] dy in
-            guard let self, UserDefaults.standard.object(forKey: LirikPreferenceViewController.keyEnableGestures) as? Bool ?? true else { return }
-            let delta = Float(dy) * 0.003
-            let newVol = self.nowPlayingWatcher.adjustSystemVolume(by: delta)
-            self.flashFeedbackText("Volume: \(newVol)%")
-        }
+    private func handleDoubleTap() {
+        triggerHapticFeedback()
+        nowPlayingWatcher.togglePlayPause()
+    }
 
-        touchView.onPanBegan = { [weak self] _ in
-            guard let self = self,
-                  let track = self.nowPlayingWatcher.currentTrack,
-                  !track.isAdvertisement,
-                  let duration = track.duration, duration > 0 else { return }
-            self.isScrubbing = true
-            self.scrubStartElapsed = track.elapsedTime ?? 0
-            self.scrubTargetTime = self.scrubStartElapsed
-            self.lastScrubIndex = -1
-            self.triggerHapticFeedback()
-        }
+    @objc private func handlePanGesture(_ gesture: NSPanGestureRecognizer) {
+        guard let track = nowPlayingWatcher.currentTrack,
+              !track.isAdvertisement,
+              let duration = track.duration, duration > 0 else { return }
 
-        touchView.onPanChanged = { [weak self] dx in
-            guard let self = self,
-                  let track = self.nowPlayingWatcher.currentTrack,
-                  !track.isAdvertisement,
-                  let duration = track.duration, duration > 0 else { return }
+        let translation = gesture.translation(in: tapButton)
 
-            let deltaSeconds = Double(dx) * 0.4
-            self.scrubTargetTime = max(0, min(self.scrubStartElapsed + deltaSeconds, duration))
+        switch gesture.state {
+        case .began:
+            singleTapTimer?.invalidate()
+            singleTapTimer = nil
+            isScrubbing = true
+            scrubStartElapsed = track.elapsedTime ?? 0
+            scrubTargetTime = scrubStartElapsed
+            lastScrubIndex = -1
+            triggerHapticFeedback()
 
-            let formattedTime = self.formatTime(self.scrubTargetTime)
-            let formattedTotal = self.formatTime(duration)
+        case .changed:
+            let deltaSeconds = Double(translation.x) * 0.4
+            scrubTargetTime = max(0, min(scrubStartElapsed + deltaSeconds, duration))
 
-            if !self.activeLines.isEmpty {
-                let snapshot = LRCSyncEngine.resolve(elapsedTime: self.scrubTargetTime, lines: self.activeLines)
+            let formattedTime = formatTime(scrubTargetTime)
+            let formattedTotal = formatTime(duration)
+
+            if !activeLines.isEmpty {
+                let snapshot = LRCSyncEngine.resolve(elapsedTime: scrubTargetTime, lines: activeLines)
                 let previewText = snapshot.currentLine?.text ?? snapshot.upcomingLine?.text ?? "..."
-                self.karaokeView.text = "[\(formattedTime) / \(formattedTotal)] \(previewText)"
-                self.karaokeView.progress = 1.0
-                self.nextLineLabel.stringValue = "Release to jump to timestamp"
+                karaokeView.text = "[\(formattedTime) / \(formattedTotal)] \(previewText)"
+                karaokeView.progress = 1.0
+                nextLineLabel.stringValue = "Release to jump to timestamp"
 
-                if let idx = snapshot.currentIndex, idx != self.lastScrubIndex {
-                    self.lastScrubIndex = idx
-                    self.triggerHapticFeedback()
+                if let idx = snapshot.currentIndex, idx != lastScrubIndex {
+                    lastScrubIndex = idx
+                    triggerHapticFeedback()
                 }
             } else {
-                self.karaokeView.text = "Seeking to \(formattedTime) / \(formattedTotal)"
-                self.nextLineLabel.stringValue = "Release to jump"
+                karaokeView.text = "Seeking to \(formattedTime) / \(formattedTotal)"
+                nextLineLabel.stringValue = "Release to jump"
             }
-        }
 
-        touchView.onPanEnded = { [weak self] _ in
-            guard let self = self else { return }
-            self.isScrubbing = false
-            self.triggerHapticFeedback()
-            self.nowPlayingWatcher.seek(to: self.scrubTargetTime)
+        case .ended:
+            isScrubbing = false
+            triggerHapticFeedback()
+            nowPlayingWatcher.seek(to: scrubTargetTime)
+            clock.reset(at: scrubTargetTime, running: track.isPlaying)
 
             // Resume display
-            if case .synced(_, _, let lines) = self.uiState {
-                let snapshot = LRCSyncEngine.resolve(elapsedTime: self.scrubTargetTime, lines: lines)
-                self.renderSyncSnapshot(snapshot, elapsed: self.scrubTargetTime, isPaused: self.isCurrentlyPaused)
+            if case .synced(_, _, let lines) = uiState {
+                let snapshot = LRCSyncEngine.resolve(elapsedTime: scrubTargetTime, lines: lines)
+                renderSyncSnapshot(snapshot, elapsed: scrubTargetTime, isPaused: isCurrentlyPaused)
             }
-        }
 
-        touchView.onPanCancelled = { [weak self] in
-            guard let self = self else { return }
-            self.isScrubbing = false
-            if case .synced(_, _, let lines) = self.uiState {
-                let elapsed = self.nowPlayingWatcher.currentTrack?.elapsedTime ?? 0
+        case .cancelled, .failed:
+            isScrubbing = false
+            if case .synced(_, _, let lines) = uiState {
+                let elapsed = nowPlayingWatcher.currentTrack?.elapsedTime ?? 0
                 let snapshot = LRCSyncEngine.resolve(elapsedTime: elapsed, lines: lines)
-                self.renderSyncSnapshot(snapshot, elapsed: elapsed, isPaused: self.isCurrentlyPaused)
+                renderSyncSnapshot(snapshot, elapsed: elapsed, isPaused: isCurrentlyPaused)
             }
+
+        default:
+            break
         }
     }
 
@@ -722,11 +688,6 @@ class LyricsWidget: NSObject, PKWidget {
         updateHeartButtonIcon(isLiked: isHeartLiked)
         nowPlayingWatcher.toggleLikeTrack()
         flashFeedbackText(isHeartLiked ? "Added to Liked Songs" : "Removed from Liked Songs")
-    }
-
-    private func handleDoubleTap() {
-        triggerHapticFeedback()
-        nowPlayingWatcher.togglePlayPause()
     }
 
     private func handleLongPressQuote() {
@@ -894,7 +855,7 @@ class LyricsWidget: NSObject, PKWidget {
                 FloatingLyricsHUD.shared.setVideoURL(nil)
 
                 let initialElapsed = track.elapsedTime ?? 0.0
-                self.liveClock.reset(at: initialElapsed, running: track.isPlaying)
+                self.clock.reset(at: initialElapsed, running: track.isPlaying)
                 self.lastKnownElapsed = initialElapsed
                 self.lastPlaybackTimestamp = Date()
                 self.lastRenderedLineIndex = nil
@@ -930,7 +891,7 @@ class LyricsWidget: NSObject, PKWidget {
                     }
                 }
             } else {
-                self.liveClock.reset(at: 0.0, running: false)
+                self.clock.reset(at: 0.0, running: false)
                 self.lastKnownElapsed = 0.0
                 self.lastPlaybackTimestamp = Date()
                 self.lastRenderedLineIndex = nil
@@ -961,12 +922,12 @@ class LyricsWidget: NSObject, PKWidget {
 
             let now = Date()
             if !track.isPlaying || self.isCurrentlyPaused {
-                self.liveClock.reset(at: elapsed, running: false)
+                self.clock.reset(at: elapsed, running: false)
                 self.lastKnownElapsed = elapsed
                 self.lastPlaybackTimestamp = now
             } else {
-                self.liveClock.correct(toward: elapsed)
-                self.lastKnownElapsed = self.liveClock.now()
+                self.clock.sync(to: elapsed, running: true)
+                self.lastKnownElapsed = self.clock.now()
                 self.lastPlaybackTimestamp = now
             }
 
@@ -988,7 +949,7 @@ class LyricsWidget: NSObject, PKWidget {
                     self.videoView.pauseVideo()
                 }
 
-                let effectiveElapsed = max(0.0, self.liveClock.now() + self.currentTrackOffset)
+                let effectiveElapsed = max(0.0, self.clock.now() + self.currentTrackOffset)
                 if case .synced(_, _, let lines) = self.uiState {
                     let snapshot = LRCSyncEngine.resolve(elapsedTime: effectiveElapsed, lines: lines)
                     if !track.isPlaying || snapshot.currentIndex != self.lastRenderedLineIndex || snapshot.positionState != self.lastRenderedPositionState {

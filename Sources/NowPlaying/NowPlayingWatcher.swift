@@ -52,7 +52,7 @@ final class NowPlayingWatcher {
     // MARK: - Playback Controls
 
     func togglePlayPause() {
-        appleScriptBackend.togglePlayPause()
+        appleScriptBackend.togglePlayPause(preferredSource: currentTrack?.source)
     }
 
     func seek(to position: TimeInterval) {

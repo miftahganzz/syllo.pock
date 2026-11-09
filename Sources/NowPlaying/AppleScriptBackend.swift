@@ -16,9 +16,9 @@ final class AppleScriptBackend {
 
     // MARK: - Configuration
 
-    /// How often to poll, in seconds. 0.75s gives ultra-tight real-time detection
-    /// without excessive CPU overhead.
-    var pollingInterval: TimeInterval = 0.75
+    /// How often to poll, in seconds. 0.35s provides instantaneous real-time sync
+    /// with zero audible or visual lag.
+    var pollingInterval: TimeInterval = 0.35
 
     // MARK: - State
 
@@ -717,44 +717,54 @@ final class AppleScriptBackend {
         return false
     }
 
-    func togglePlayPause() {
+    func togglePlayPause(preferredSource: NowPlayingSource? = nil) {
         let pref = UserDefaults.standard.string(forKey: "io.github.ridhaaf.lirik.preferredPlayer") ?? "auto"
         if pref == "browser" {
             toggleBrowserPlayPause()
             return
         }
 
-        if isSonoraActiveNowPlaying() {
-            mediaRemote.togglePlayPause()
-        } else if isAppRunning(bundleIdentifier: "com.spotify.client") {
+        // 1. Target the exact player that is currently reported as active
+        if let source = preferredSource {
+            switch source {
+            case .spotify:
+                _ = runAppleScript("tell application \"Spotify\" to playpause", appName: "Spotify")
+                return
+            case .appleMusic:
+                _ = runAppleScript("tell application \"Music\" to playpause", appName: "Apple Music")
+                return
+            case .sonora:
+                mediaRemote.togglePlayPause()
+                return
+            case .quickTime:
+                let script = """
+                tell application "QuickTime Player"
+                    if (count of documents) > 0 then
+                        set doc to front document
+                        if playing of doc then
+                            pause doc
+                        else
+                            play doc
+                        end if
+                    end if
+                end tell
+                """
+                _ = runAppleScript(script, appName: "QuickTime Player")
+                return
+            default:
+                break
+            }
+        }
+
+        // 2. Fallback heuristic: check which music player is running
+        if isAppRunning(bundleIdentifier: "com.spotify.client") {
             _ = runAppleScript("tell application \"Spotify\" to playpause", appName: "Spotify")
         } else if isAppRunning(bundleIdentifier: "com.apple.Music") {
             _ = runAppleScript("tell application \"Music\" to playpause", appName: "Apple Music")
-        } else if isAppRunning(bundleIdentifier: "com.apple.QuickTimePlayerX") {
-            let script = """
-            tell application "QuickTime Player"
-                if (count of documents) > 0 then
-                    set doc to front document
-                    if playing of doc then
-                        pause doc
-                    else
-                        play doc
-                    end if
-                end if
-            end tell
-            """
-            _ = runAppleScript(script, appName: "QuickTime Player")
-        } else if isAppRunning(bundleIdentifier: "org.videolan.vlc") {
-            _ = runAppleScript("tell application \"VLC\" to play", appName: "VLC")
-        } else if isAppRunning(bundleIdentifier: "com.colliderli.iina") {
-            let script = """
-            tell application "System Events"
-                tell process "IINA"
-                    keystroke space
-                end tell
-            end tell
-            """
-            _ = runAppleScript(script, appName: "IINA")
+        } else if isAppRunning(bundleIdentifier: "dev.nolight.sonora") {
+            mediaRemote.togglePlayPause()
+        } else {
+            mediaRemote.togglePlayPause()
         }
     }
 
