@@ -1049,61 +1049,19 @@ class LyricsWidget: NSObject, PKWidget {
         }
     }
 
-    // MARK: - Apple Music Motion Album Artwork Animation
+    // MARK: - Album Artwork Motion Video Playback Control
 
     private func updateAlbumArtMotion() {
-        let defaults = UserDefaults.standard
-        let enableMotion = defaults.object(forKey: LirikPreferenceViewController.keyEnableAnimatedArtwork) as? Bool ?? true
-
-        guard enableMotion, !isCurrentlyPaused, !albumArtButton.isHidden else {
-            stopAlbumArtMotion()
-            return
+        if isCurrentlyPaused {
+            videoView.pauseVideo()
+        } else {
+            videoView.playVideo()
         }
-        startAlbumArtMotion()
+        stopAlbumArtMotion()
     }
 
     private func startAlbumArtMotion() {
-        guard !albumArtButton.isHidden, !isCurrentlyPaused else { return }
-
-        // 1. Subtle Apple Music breathing scale
-        if albumArtImageView.layer?.animation(forKey: "appleMusicBreathing") == nil {
-            let breathAnim = CAKeyframeAnimation(keyPath: "transform.scale")
-            breathAnim.values = [1.0, 1.07, 1.03, 1.08, 1.0]
-            breathAnim.keyTimes = [0.0, 0.35, 0.55, 0.8, 1.0]
-            breathAnim.duration = 3.2
-            breathAnim.repeatCount = .infinity
-            breathAnim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            albumArtImageView.layer?.add(breathAnim, forKey: "appleMusicBreathing")
-        }
-
-        // 2. Dynamic Ambient Aura Glow
-        let glowColor = (dynamicArtworkColor ?? NSColor(red: 1.0, green: 0.35, blue: 0.5, alpha: 1.0)).cgColor
-        albumArtButton.layer?.shadowColor = glowColor
-        albumArtButton.layer?.shadowOffset = .zero
-        albumArtButton.layer?.shadowRadius = 6.0
-
-        if albumArtButton.layer?.animation(forKey: "appleMusicAuraPulse") == nil {
-            let pulseGlow = CABasicAnimation(keyPath: "shadowOpacity")
-            pulseGlow.fromValue = 0.40
-            pulseGlow.toValue = 0.95
-            pulseGlow.duration = 1.6
-            pulseGlow.autoreverses = true
-            pulseGlow.repeatCount = .infinity
-            pulseGlow.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            albumArtButton.layer?.add(pulseGlow, forKey: "appleMusicAuraPulse")
-        }
-
-        // 3. Apple Music diagonal light sweep
-        if albumArtShimmerLayer.animation(forKey: "appleMusicShimmer") == nil {
-            let shimmer = CABasicAnimation(keyPath: "transform.translation.x")
-            shimmer.fromValue = -35.0
-            shimmer.toValue = 55.0
-            shimmer.duration = 3.6
-            shimmer.repeatCount = .infinity
-            shimmer.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            albumArtShimmerLayer.add(shimmer, forKey: "appleMusicShimmer")
-        }
-        isAlbumArtMotionActive = true
+        stopAlbumArtMotion()
     }
 
     private func stopAlbumArtMotion() {
@@ -1111,6 +1069,7 @@ class LyricsWidget: NSObject, PKWidget {
         albumArtButton.layer?.removeAnimation(forKey: "appleMusicAuraPulse")
         albumArtButton.layer?.shadowOpacity = 0.0
         albumArtShimmerLayer.removeAnimation(forKey: "appleMusicShimmer")
+        albumArtShimmerLayer.opacity = 0.0
         isAlbumArtMotionActive = false
     }
 
@@ -1995,7 +1954,8 @@ class LyricsWidget: NSObject, PKWidget {
             let videoURL = await self.canvasVideoService.fetchCanvasURL(
                 trackID: track.trackID,
                 title: track.title,
-                artist: track.artist
+                artist: track.artist,
+                album: track.album
             )
 
             guard self.nowPlayingWatcher.currentTrack?.isSameTrack(as: track) == true else {
