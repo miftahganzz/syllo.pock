@@ -23,6 +23,50 @@ enum LyricsWidgetUIState: Equatable {
     case synced(title: String, artist: String, lines: [LRCLine])
 }
 
+/// Sonora-inspired Live Clock: smooth time continuity with zero-stutter blending
+private struct LiveClock {
+    var base: TimeInterval = 0.0
+    var since: Date? = nil
+    var correction: Double = 0.0
+    var settle: Double = 1.0
+
+    mutating func reset(at: TimeInterval, running: Bool) {
+        base = at
+        since = running ? Date() : nil
+        correction = 0.0
+        settle = 1.0
+    }
+
+    mutating func correct(toward: TimeInterval) {
+        let now = Date()
+        let shown = self.at(now)
+        let gap = toward - shown
+        if abs(gap) > 0.60 || gap < -0.40 {
+            base = toward
+            since = now
+            correction = 0.0
+            settle = 1.0
+        } else {
+            base = shown
+            since = now
+            correction = gap
+            settle = 1.0 + abs(gap)
+        }
+    }
+
+    func now() -> TimeInterval {
+        return self.at(Date())
+    }
+
+    func at(_ now: Date) -> TimeInterval {
+        guard let since = since else { return base }
+        let elapsed = max(0.0, now.timeIntervalSince(since))
+        let blend = min(1.0, max(0.0, elapsed / max(0.001, settle)))
+        let shifted = base + elapsed + (correction * blend)
+        return max(0.0, shifted)
+    }
+}
+
 class LyricsWidget: NSObject, PKWidget {
 
     // MARK: - PKWidget Protocol Properties
@@ -105,6 +149,7 @@ class LyricsWidget: NSObject, PKWidget {
     private var karaokeSmoothTimer: Timer?
     private var lastPlaybackTimestamp: Date = Date()
     private var lastKnownElapsed: TimeInterval = 0
+    private var liveClock = LiveClock()
     private var currentLineStartTimestamp: TimeInterval = 0
     private var currentLineEndTimestamp: TimeInterval = 0
     private var currentLineWords: [LRCWord] = []
@@ -373,7 +418,7 @@ class LyricsWidget: NSObject, PKWidget {
         let rawLineDuration = lineEnd - lineStart
         let words = lineText.components(separatedBy: .whitespacesAndNewlines).filter { !$0.isEmpty }
 
-        // 1. Enhanced LRC with explicit word/syllable timestamps (Proportional Character-Length Mapping)
+        // 1. Enhanced LRC with explicit word/syllable timestamps (Sonora swept + easeOutCubic engine)
         if !explicitWords.isEmpty {
             let totalChars = max(1, lineText.count)
             let activeWordIndex = explicitWords.lastIndex(where: { elapsed >= $0.timestamp }) ?? 0
@@ -389,19 +434,31 @@ class LyricsWidget: NSObject, PKWidget {
             let wordEndFraction = Double(min(totalChars, charOffset + currentWordLen)) / Double(totalChars)
             let wordSpan = max(0.001, wordEndFraction - wordStartFraction)
 
-            let currentWordStart = explicitWords[activeWordIndex].timestamp
+            let currentWord = explicitWords[activeWordIndex]
+            let currentWordStart = (activeWordIndex == 0) ? min(lineStart, currentWord.timestamp) : currentWord.timestamp
             let nextWordStart = (activeWordIndex + 1 < explicitWords.count)
                 ? explicitWords[activeWordIndex + 1].timestamp
                 : lineEnd
-            let wordDuration = max(0.08, nextWordStart - currentWordStart)
-            let rawWordFraction = min(1.0, max(0.0, (elapsed - currentWordStart) / wordDuration))
 
-            let finalProgress = wordStartFraction + (rawWordFraction * wordSpan)
+            let sungEnd = currentWord.duration.map { currentWordStart + $0 } ?? nextWordStart
+            let isTail = (activeWordIndex + 1 >= explicitWords.count)
+
+            // Sonora's sweep travel model:
+            let span = max(0.05, sungEnd - currentWordStart)
+            let travel = isTail ? max(0.18, span) : max(0.18, span * 1.4)
+            let timeIntoWord = max(0.0, elapsed - currentWordStart)
+            let rawWordFraction = min(1.0, timeIntoWord / travel)
+
+            // Sonora's easeOutCubic curve for vocal attack & decay:
+            let eased = 1.0 - pow(1.0 - rawWordFraction, 3.0)
+            let wordProgress = (eased >= 0.98) ? 1.0 : eased
+
+            let finalProgress = wordStartFraction + (wordProgress * wordSpan)
             return max(0.0, min(1.0, finalProgress))
         }
 
-        // 2. Standard LRC: Strict Proportional Vocal Flow Model
-        // When there is an instrumental solo or pause before next line (> 6.5s), cap the vocal duration
+        // 2. Standard LRC: Sonora-inspired Rhythmic Syllable Attack Model
+        // Pace strictly follows the audio interval of the line with vocal attack curvature
         let effectiveLineDuration: Double
         if rawLineDuration > 6.5 {
             let estimatedMaxSinging = max(2.5, Double(max(1, words.count)) * 0.95)
@@ -410,7 +467,6 @@ class LyricsWidget: NSObject, PKWidget {
             effectiveLineDuration = rawLineDuration
         }
 
-        // Natural breath pause at end (6% of line)
         let breathDuration = min(0.30, max(0.08, effectiveLineDuration * 0.06))
         let vocalDuration = max(0.25, effectiveLineDuration - breathDuration)
 
@@ -419,45 +475,69 @@ class LyricsWidget: NSObject, PKWidget {
             return 1.0
         }
 
-        let rawLinearFraction = timeIntoLine / vocalDuration
-
         guard words.count > 1 else {
-            return max(0.0, min(1.0, rawLinearFraction))
+            let rawProgress = timeIntoLine / vocalDuration
+            let eased = 1.0 - pow(1.0 - rawProgress, 3.0)
+            return max(0.0, min(1.0, eased))
         }
 
-        // Weight each word by character count + phonetic base weight
-        let wordWeights = words.map { Double($0.count) + 1.2 }
+        // Weight words by phonetic syllable length: vowels add duration, consonants add attack
+        let vowels: Set<Character> = ["a", "i", "u", "e", "o", "A", "I", "U", "E", "O"]
+        let wordWeights = words.map { word -> Double in
+            let vowelCount = word.filter { vowels.contains($0) }.count
+            let consonantCount = word.count - vowelCount
+            return max(1.0, Double(vowelCount) * 1.6 + Double(consonantCount) * 0.8)
+        }
         let totalWeight = wordWeights.reduce(0.0, +)
 
-        var cumulativeWeights: [Double] = []
-        var runningWeight = 0.0
+        var wordSpans: [(start: Double, end: Double)] = []
+        var runningTime = 0.0
         for w in wordWeights {
-            runningWeight += w
-            cumulativeWeights.append(runningWeight / totalWeight)
+            let wordDuration = (w / totalWeight) * vocalDuration
+            let start = runningTime
+            let end = runningTime + wordDuration
+            wordSpans.append((start: start, end: end))
+            runningTime = end
         }
 
-        var activeIdx = 0
-        while activeIdx < cumulativeWeights.count - 1 && rawLinearFraction > cumulativeWeights[activeIdx] {
-            activeIdx += 1
+        var activeWordIdx = 0
+        for (i, span) in wordSpans.enumerated() {
+            if timeIntoLine >= span.start {
+                activeWordIdx = i
+            }
         }
 
-        let prevWeight = activeIdx > 0 ? cumulativeWeights[activeIdx - 1] : 0.0
-        let currentWeight = cumulativeWeights[activeIdx]
-        let wordSpan = max(0.001, currentWeight - prevWeight)
-        let subFraction = max(0.0, min(1.0, (rawLinearFraction - prevWeight) / wordSpan))
+        let totalChars = max(1, lineText.count)
+        var charOffset = 0
+        for i in 0..<activeWordIdx {
+            charOffset += words[i].count
+            if i < words.count - 1 { charOffset += 1 }
+        }
+        let currentWordLen = max(1, words[activeWordIdx].count)
+        let wordStartFraction = Double(charOffset) / Double(totalChars)
+        let wordEndFraction = Double(min(totalChars, charOffset + currentWordLen)) / Double(totalChars)
+        let wordSpan = max(0.001, wordEndFraction - wordStartFraction)
 
-        let interpolated = prevWeight + (subFraction * wordSpan)
-        return max(0.0, min(1.0, interpolated))
+        let activeSpan = wordSpans[activeWordIdx]
+        let wordDuration = max(0.08, activeSpan.end - activeSpan.start)
+        let isTail = (activeWordIdx == words.count - 1)
+        let travel = isTail ? max(0.18, wordDuration) : max(0.18, wordDuration * 1.3)
+        let timeIntoWord = max(0.0, timeIntoLine - activeSpan.start)
+        let rawFraction = min(1.0, timeIntoWord / travel)
+
+        // Vocal attack cubic curve
+        let eased = 1.0 - pow(1.0 - rawFraction, 3.0)
+        let wordProgress = (eased >= 0.98) ? 1.0 : eased
+
+        let finalProgress = wordStartFraction + (wordProgress * wordSpan)
+        return max(0.0, min(1.0, finalProgress))
     }
 
     private func tickKaraokeProgress() {
         guard !isCurrentlyPaused, !isScrubbing, !activeLines.isEmpty else { return }
 
-        let now = Date()
-        let elapsedDelta = now.timeIntervalSince(lastPlaybackTimestamp)
-        // 120ms human psychoacoustic visual lead anticipation offset so the lyric highlight is perceived dead-on the beat:
-        let leadAnticipation: TimeInterval = 0.12
-        let effectiveElapsed = max(0.0, lastKnownElapsed + elapsedDelta + currentTrackOffset + leadAnticipation)
+        // Continuous LiveClock time tracking
+        let effectiveElapsed = max(0.0, liveClock.now() + currentTrackOffset)
 
         // 1. Real-time 60 FPS line transition check:
         // Switch line immediately the exact frame its timestamp is reached!
@@ -813,6 +893,13 @@ class LyricsWidget: NSObject, PKWidget {
                 self.albumArtImageView.isHidden = false
                 FloatingLyricsHUD.shared.setVideoURL(nil)
 
+                let initialElapsed = track.elapsedTime ?? 0.0
+                self.liveClock.reset(at: initialElapsed, running: track.isPlaying)
+                self.lastKnownElapsed = initialElapsed
+                self.lastPlaybackTimestamp = Date()
+                self.lastRenderedLineIndex = nil
+                self.lastRenderedPositionState = nil
+
                 let newKey = LyricsCache.makeTrackKey(title: track.title, artist: track.artist, duration: track.duration)
                 self.activeTrackKey = newKey
 
@@ -843,6 +930,11 @@ class LyricsWidget: NSObject, PKWidget {
                     }
                 }
             } else {
+                self.liveClock.reset(at: 0.0, running: false)
+                self.lastKnownElapsed = 0.0
+                self.lastPlaybackTimestamp = Date()
+                self.lastRenderedLineIndex = nil
+                self.lastRenderedPositionState = nil
                 self.activeTrackKey = ""
                 self.activeLines = []
                 self.currentLineWords = []
@@ -869,23 +961,13 @@ class LyricsWidget: NSObject, PKWidget {
 
             let now = Date()
             if !track.isPlaying || self.isCurrentlyPaused {
+                self.liveClock.reset(at: elapsed, running: false)
                 self.lastKnownElapsed = elapsed
                 self.lastPlaybackTimestamp = now
             } else {
-                let currentExtrapolated = self.lastKnownElapsed + now.timeIntervalSince(self.lastPlaybackTimestamp)
-                let diff = elapsed - currentExtrapolated
-
-                // If gap is significant (user seeked or track jumped), snap immediately
-                if abs(diff) > 0.60 || diff < -0.40 {
-                    self.lastKnownElapsed = elapsed
-                    self.lastPlaybackTimestamp = now
-                    self.lastRenderedLineIndex = nil
-                } else {
-                    // Responsive PLL phase locking with 80% convergence factor (fast tracking, zero sluggish drift)
-                    let adjusted = currentExtrapolated + (diff * 0.80)
-                    self.lastKnownElapsed = adjusted
-                    self.lastPlaybackTimestamp = now
-                }
+                self.liveClock.correct(toward: elapsed)
+                self.lastKnownElapsed = self.liveClock.now()
+                self.lastPlaybackTimestamp = now
             }
 
             DispatchQueue.main.async {
@@ -906,10 +988,12 @@ class LyricsWidget: NSObject, PKWidget {
                     self.videoView.pauseVideo()
                 }
 
-                let effectiveElapsed = max(0.0, self.lastKnownElapsed + self.currentTrackOffset)
+                let effectiveElapsed = max(0.0, self.liveClock.now() + self.currentTrackOffset)
                 if case .synced(_, _, let lines) = self.uiState {
                     let snapshot = LRCSyncEngine.resolve(elapsedTime: effectiveElapsed, lines: lines)
-                    self.renderSyncSnapshot(snapshot, elapsed: effectiveElapsed, isPaused: !track.isPlaying)
+                    if !track.isPlaying || snapshot.currentIndex != self.lastRenderedLineIndex || snapshot.positionState != self.lastRenderedPositionState {
+                        self.renderSyncSnapshot(snapshot, elapsed: effectiveElapsed, isPaused: !track.isPlaying)
+                    }
                 } else if case .staticOnly(_, _, let text) = self.uiState {
                     self.renderStaticLyrics(text, elapsed: effectiveElapsed, trackDuration: track.duration, isPaused: !track.isPlaying)
                 } else if case .noLyricsFound(let title, let artist) = self.uiState {
@@ -1273,7 +1357,8 @@ class LyricsWidget: NSObject, PKWidget {
                 title: track.title,
                 artist: track.artist,
                 album: track.album,
-                duration: track.duration
+                duration: track.duration,
+                trackID: track.trackID
             )
 
             guard !Task.isCancelled, self.activeTrackKey == expectedKey else { return }

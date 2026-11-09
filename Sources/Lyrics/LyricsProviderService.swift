@@ -27,15 +27,26 @@ final class LyricsProviderService: Sendable {
         self.session = session
     }
 
-    /// Fetches lyrics attempting LRCLIB (Primary), then NetEase (Fallback 1), then QQ Music (Fallback 2), then Kugou (Fallback 3).
+    /// Fetches lyrics attempting Sonora Cache (if available), then LRCLIB (Primary), then NetEase (Fallback 1), then QQ Music (Fallback 2), then Kugou (Fallback 3).
     func fetchLyrics(
         title: String,
         artist: String,
         album: String? = nil,
-        duration: Double? = nil
+        duration: Double? = nil,
+        trackID: String? = nil
     ) async -> LyricsProviderResult {
         let cleanTitle = LRCLIBClient.cleanTrackTitle(title)
         let cleanArtist = artist.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 0. Sonora Live Cache (Worded / Syllable-level lyrics directly matching Sonora's player engine)
+        if let sonoraResult = SonoraBridge.shared.fetchCachedLyrics(
+            trackID: trackID,
+            title: cleanTitle,
+            artist: cleanArtist
+        ) {
+            NSLog("[LyricsProvider] Matched via Sonora Cache: \(sonoraResult.source)")
+            return .synced(source: sonoraResult.source, lrcText: sonoraResult.lrcText, plainLyrics: nil)
+        }
 
         // 1. Primary: LRCLIB (Precise syllable/word-level synced lyrics)
         if let lrclibResult = try? await lrclibClient.fetchLyrics(

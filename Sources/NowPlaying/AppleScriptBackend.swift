@@ -259,19 +259,30 @@ final class AppleScriptBackend {
 
     private func querySonora() -> NowPlayingTrack? {
         guard isAppRunning(bundleIdentifier: "dev.nolight.sonora") else { return nil }
-        guard let result = mediaRemote.fetchNowPlayingSync() else { return nil }
 
+        let mrResult = mediaRemote.fetchNowPlayingSync()
+        let playbackRate = mrResult?.rawInfo["kMRMediaRemoteNowPlayingInfoPlaybackRate"] as? Double ?? (mrResult?.track?.isPlaying == true ? 1.0 : 0.0)
+
+        // Cache artwork in memory if provided directly in MediaRemote payload
+        if let mrResult = mrResult,
+           let baseTrack = mrResult.track,
+           let artworkData = mrResult.rawInfo["kMRMediaRemoteNowPlayingInfoArtworkData"] as? Data,
+           let img = NSImage(data: artworkData) {
+            AlbumArtService.shared.storeImageInMemory(img, artist: baseTrack.artist, album: baseTrack.album, title: baseTrack.title)
+        }
+
+        // 1. Direct Sonora engine reader: extracts real-time microsecond position & track ID from Sonora's state
+        if let liveTrack = SonoraBridge.shared.fetchCurrentTrack(mediaRemotePlaybackRate: playbackRate) {
+            return liveTrack
+        }
+
+        // 2. Fallback to MediaRemote payload
+        guard let result = mrResult else { return nil }
         let app = NSRunningApplication(processIdentifier: result.pid)
         let isSonora = app?.bundleIdentifier == "dev.nolight.sonora" ||
                        app?.localizedName?.lowercased().contains("sonora") == true
 
         guard isSonora, let baseTrack = result.track else { return nil }
-
-        // Cache artwork in memory if provided directly in MediaRemote payload
-        if let artworkData = result.rawInfo["kMRMediaRemoteNowPlayingInfoArtworkData"] as? Data,
-           let img = NSImage(data: artworkData) {
-            AlbumArtService.shared.storeImageInMemory(img, artist: baseTrack.artist, album: baseTrack.album, title: baseTrack.title)
-        }
 
         return NowPlayingTrack(
             title: baseTrack.title,

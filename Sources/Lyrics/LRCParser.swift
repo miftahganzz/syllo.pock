@@ -13,6 +13,13 @@ import Foundation
 struct LRCWord: Equatable, Sendable, Codable {
     let timestamp: TimeInterval
     let text: String
+    var duration: TimeInterval?
+
+    init(timestamp: TimeInterval, text: String, duration: TimeInterval? = nil) {
+        self.timestamp = timestamp
+        self.text = text
+        self.duration = duration
+    }
 }
 
 /// A single timestamped lyric line parsed from LRC format.
