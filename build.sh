@@ -114,6 +114,7 @@ cd ..
 
 echo "==> Restarting Pock..."
 killall Pock 2>/dev/null || true
+sleep 1
 open -a Pock || true
 
 echo "==> Build, deployment and packaging SUCCESS!"
