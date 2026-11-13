@@ -126,23 +126,28 @@ final class KaraokeLyricView: NSView {
         layer.removeAnimation(forKey: "popScale")
 
         let transition = CATransition()
-        transition.duration = 0.26
+        transition.duration = 0.22
         transition.timingFunction = CAMediaTimingFunction(name: .easeOut)
 
-        switch animation {
-        case "fade":
+        if highlightStyle == .codeSyntax {
+            // For code syntax, crossfade cleanly to avoid push collisions
             transition.type = .fade
-        case "pop":
-            transition.type = .fade
-            let pop = CAKeyframeAnimation(keyPath: "transform.scale")
-            pop.values = [0.93, 1.04, 1.0]
-            pop.keyTimes = [0.0, 0.55, 1.0]
-            pop.duration = 0.26
-            pop.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            layer.add(pop, forKey: "popScale")
-        default: // slide
-            transition.type = .push
-            transition.subtype = .fromBottom
+        } else {
+            switch animation {
+            case "fade":
+                transition.type = .fade
+            case "pop":
+                transition.type = .fade
+                let pop = CAKeyframeAnimation(keyPath: "transform.scale")
+                pop.values = [0.93, 1.04, 1.0]
+                pop.keyTimes = [0.0, 0.55, 1.0]
+                pop.duration = 0.22
+                pop.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                layer.add(pop, forKey: "popScale")
+            default: // slide
+                transition.type = .push
+                transition.subtype = .fromBottom
+            }
         }
 
         layer.add(transition, forKey: "lineTransition")
@@ -283,7 +288,7 @@ final class KaraokeLyricView: NSView {
         let tokens = CodeLyricSynthesizer.shared.synthesizeTokens(
             lyric: text, trackTitle: trackTitle, lineIndex: lineIndex
         )
-        let monoFont = NSFont.monospacedSystemFont(ofSize: max(9.5, font.pointSize - 0.5), weight: .medium)
+        let monoFont = NSFont.monospacedSystemFont(ofSize: max(10.0, font.pointSize - 0.5), weight: .semibold)
 
         let dimmedAttr = NSMutableAttributedString()
         let activeAttr = NSMutableAttributedString()
@@ -478,82 +483,88 @@ final class KaraokeLyricView: NSView {
         ctx.restoreGState()
     }
 
-    // MARK: - Code Syntax Drawing
+    // MARK: - Code Syntax Drawing (Glitch-Free Non-Overlapping Architecture)
 
     private func drawCodeSyntax(progress p: CGFloat) {
-        let (dimmed, active) = codeAttributedStrings()
-        let fullSize = active.size()
-        let textY = max(0, (bounds.height - fullSize.height) / 2)
-        let textX: CGFloat = 2.0
-
-        // 1. Ghost background (dimmed full line)
-        dimmed.draw(at: NSPoint(x: textX, y: textY))
-
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let (dimmed, active) = codeAttributedStrings()
 
         let totalLen = active.length
         guard totalLen > 0 else { return }
 
+        let fullSize = active.size()
+        let textY = max(0, (bounds.height - fullSize.height) / 2)
+        let textX: CGFloat = 2.0
+        let availableW = max(10, bounds.width - 6)
+
         let effectiveP = isHighlightEnabled ? p : 1.0
 
-        // Smooth pixel-based clip rather than NSRange substring size
-        // → measure cumulative width of active attributed string token-by-token
-        let fullWidth = active.size().width
-        let targetWidth = fullWidth * effectiveP
-
-        var activeWidth: CGFloat = 0
-        if effectiveP > 0.001 {
-            if effectiveP >= 0.999 {
-                activeWidth = fullWidth
-            } else {
-                // Build a temporary NSAttributedString up to the target pixel column
-                // by scanning character by character (safe for emoji & multi-codepoint)
-                var accW: CGFloat = 0
-                var scanIdx = 0
-                while scanIdx < totalLen {
-                    let charRange = NSRange(location: scanIdx, length: 1)
-                    let charAttr  = active.attributedSubstring(from: charRange)
-                    let charW     = charAttr.size().width
-                    if accW + charW > targetWidth { break }
-                    accW += charW
-                    scanIdx += 1
-                }
-                activeWidth = accW
-            }
-
-            if activeWidth > 0 {
-                ctx.saveGState()
-                ctx.clip(to: NSRect(x: textX, y: 0, width: activeWidth, height: bounds.height))
-                active.draw(at: NSPoint(x: textX, y: textY))
-                ctx.restoreGState()
-            }
+        // Smooth horizontal pan if line exceeds available width
+        var drawX = textX
+        let naturalW = fullSize.width
+        if naturalW > availableW {
+            let overflow = naturalW - availableW
+            let scrollProgress = min(1.0, max(0.0, (effectiveP - 0.15) / 0.70))
+            drawX = textX - (overflow * CGFloat(scrollProgress))
         }
 
-        // 2. Neon red blinking cursor — only during active typing phase
+        // Strict clip to bounds to prevent drawing outside view
+        ctx.saveGState()
+        ctx.clip(to: bounds)
+
+        let targetW = naturalW * effectiveP
+        var activeCharCount = 0
+        var activePixelWidth: CGFloat = 0.0
+
+        if effectiveP >= 0.999 {
+            activeCharCount = totalLen
+            activePixelWidth = naturalW
+        } else if effectiveP > 0.001 {
+            var accW: CGFloat = 0
+            for i in 0..<totalLen {
+                let charAttr = active.attributedSubstring(from: NSRange(location: i, length: 1))
+                let charW = charAttr.size().width
+                if accW + charW > targetW { break }
+                accW += charW
+                activeCharCount += 1
+            }
+            activePixelWidth = accW
+        }
+
+        // 1. Draw Active Portion (0 ..< activeCharCount) in 100% vibrant syntax colors
+        if activeCharCount > 0 {
+            let activeSub = active.attributedSubstring(from: NSRange(location: 0, length: activeCharCount))
+            activeSub.draw(at: NSPoint(x: drawX, y: textY))
+        }
+
+        // 2. Draw Dimmed Portion (activeCharCount ..< totalLen) in 28% ghost syntax colors
+        // Note: Starts strictly at drawX + activePixelWidth! ZERO GLYPH OVERLAP!
+        if activeCharCount < totalLen {
+            let remaining = totalLen - activeCharCount
+            let dimmedSub = dimmed.attributedSubstring(from: NSRange(location: activeCharCount, length: remaining))
+            dimmedSub.draw(at: NSPoint(x: drawX + activePixelWidth, y: textY))
+        }
+
+        // 3. Draw Neon Red Glowing Cursor (#FF3B3B) between active and dimmed
         let isTyping = effectiveP > 0.001 && effectiveP < 0.999
-        if isTyping {
-            let cursorX = textX + activeWidth + 1.0
-            guard cursorX < bounds.width - 2.0 else { return }
+        let cursorX = drawX + activePixelWidth + 1.0
+        let cursorH = max(8.0, fullSize.height - 2.0)
 
-            // Use display-link-safe blink: 1.2s cycle, 50% duty
-            let blinkCycle: Double = 1.2
-            let phase = fmod(CACurrentMediaTime(), blinkCycle)
-            let cursorOn = phase < blinkCycle * 0.55 // 55% on, 45% off — feels snappier
+        let blinkCycle: Double = 1.2
+        let cursorVisible = isTyping || (fmod(CACurrentMediaTime(), blinkCycle) < (blinkCycle * 0.55))
 
-            if cursorOn {
-                let cursorH = max(8.0, fullSize.height - 2.0)
-                let cursorRect = NSRect(x: cursorX, y: textY + 1, width: 6, height: cursorH)
-                let cursorPath = NSBezierPath(roundedRect: cursorRect, xRadius: 1, yRadius: 1)
+        if cursorVisible && cursorX >= -2 && cursorX < bounds.width - 2 {
+            let cursorRect = NSRect(x: cursorX, y: textY + 1.0, width: 5.5, height: cursorH)
+            let cursorPath = NSBezierPath(roundedRect: cursorRect, xRadius: 1.2, yRadius: 1.2)
 
-                ctx.saveGState()
-                // Neon glow (shadow drawn first in CoreGraphics space)
-                let glowColor = NSColor(red: 1.0, green: 0.23, blue: 0.23, alpha: 0.90)
-                ctx.setShadow(offset: .zero, blur: 5.0,
-                              color: glowColor.cgColor)
-                NSColor(red: 1.0, green: 0.23, blue: 0.23, alpha: 1.0).setFill()
-                cursorPath.fill()
-                ctx.restoreGState()
-            }
+            ctx.saveGState()
+            let glowColor = NSColor(red: 1.0, green: 0.23, blue: 0.23, alpha: 0.95).cgColor
+            ctx.setShadow(offset: .zero, blur: 5.0, color: glowColor)
+            NSColor(red: 1.0, green: 0.23, blue: 0.23, alpha: 1.0).setFill()
+            cursorPath.fill()
+            ctx.restoreGState()
         }
+
+        ctx.restoreGState()
     }
 }

@@ -1144,8 +1144,25 @@ class LyricsWidget: NSObject, PKWidget {
         let styleStr = defaults.string(forKey: LirikPreferenceViewController.keyLyricHighlightStyle) ?? "wordBlock"
         let style = LyricHighlightStyle(rawValue: styleStr) ?? .wordBlock
         DispatchQueue.main.async { [weak self] in
-            self?.karaokeView.highlightStyle = style
-            self?.karaokeView.needsDisplay = true
+            guard let self else { return }
+            self.karaokeView.highlightStyle = style
+            let dualLine = defaults.object(forKey: LirikPreferenceViewController.keyDualLine) as? Bool ?? true
+            let fontSize = defaults.object(forKey: LirikPreferenceViewController.keyFontSize) as? Int ?? 11
+            if !dualLine || style == .codeSyntax {
+                self.karaokeHeightConstraint?.constant = 25
+                self.karaokeView.font = (style == .codeSyntax)
+                    ? NSFont.monospacedSystemFont(ofSize: CGFloat(fontSize + 1), weight: .semibold)
+                    : NSFont.boldSystemFont(ofSize: CGFloat(fontSize + 2))
+                self.nextLineLabel.isHidden = true
+                self.nextLineLabel.stringValue = ""
+            } else {
+                self.karaokeHeightConstraint?.constant = 16
+                self.karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(fontSize))
+                self.nextLineLabel.font = NSFont.systemFont(ofSize: CGFloat(max(9.5, Double(fontSize) - 1.5)))
+                self.nextLineLabel.textColor = .secondaryLabelColor
+                self.nextLineLabel.isHidden = false
+            }
+            self.karaokeView.needsDisplay = true
         }
     }
 
@@ -1529,25 +1546,18 @@ class LyricsWidget: NSObject, PKWidget {
         heartButton.isHidden = !showHeart
 
         applyTextAlignment()
-        if !dualLine {
+        if !dualLine || karaokeView.highlightStyle == .codeSyntax {
             karaokeHeightConstraint?.constant = 25
             karaokeView.font = (karaokeView.highlightStyle == .codeSyntax)
                 ? NSFont.monospacedSystemFont(ofSize: CGFloat(fontSize + 1), weight: .semibold)
                 : NSFont.boldSystemFont(ofSize: CGFloat(fontSize + 2))
             nextLineLabel.isHidden = true
+            nextLineLabel.stringValue = ""
         } else {
             karaokeHeightConstraint?.constant = 16
-            karaokeView.font = (karaokeView.highlightStyle == .codeSyntax)
-                ? NSFont.monospacedSystemFont(ofSize: CGFloat(max(9.5, Double(fontSize) - 0.5)), weight: .semibold)
-                : NSFont.boldSystemFont(ofSize: CGFloat(fontSize))
-
-            if karaokeView.highlightStyle == .codeSyntax {
-                nextLineLabel.font = NSFont.monospacedSystemFont(ofSize: CGFloat(max(8.5, Double(fontSize) - 2.0)), weight: .regular)
-                nextLineLabel.textColor = NSColor(red: 0x6A / 255.0, green: 0x99 / 255.0, blue: 0x55 / 255.0, alpha: 0.85) // VS Code comment green
-            } else {
-                nextLineLabel.font = NSFont.systemFont(ofSize: CGFloat(max(9.5, Double(fontSize) - 1.5)))
-                nextLineLabel.textColor = .secondaryLabelColor
-            }
+            karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(fontSize))
+            nextLineLabel.font = NSFont.systemFont(ofSize: CGFloat(max(9.5, Double(fontSize) - 1.5)))
+            nextLineLabel.textColor = .secondaryLabelColor
             nextLineLabel.isHidden = false
         }
 
@@ -1605,10 +1615,12 @@ class LyricsWidget: NSObject, PKWidget {
         } else {
             upcoming = upcomingRaw
         }
-        let finalUpcoming = (karaokeView.highlightStyle == .codeSyntax && !upcoming.isEmpty)
-            ? CodeLyricSynthesizer.shared.formatUpcomingComment(upcoming)
-            : upcoming
-        animateNextLineChange(label: nextLineLabel, newText: finalUpcoming)
+        if karaokeView.highlightStyle == .codeSyntax {
+            nextLineLabel.isHidden = true
+            nextLineLabel.stringValue = ""
+        } else {
+            animateNextLineChange(label: nextLineLabel, newText: upcoming)
+        }
 
         // Update Floating Desktop HUD & Ambient Window
         if let track = nowPlayingWatcher.currentTrack {
@@ -1691,25 +1703,18 @@ class LyricsWidget: NSObject, PKWidget {
         heartButton.isHidden = !showHeart
 
         applyTextAlignment()
-        if !dualLine {
+        if !dualLine || karaokeView.highlightStyle == .codeSyntax {
             karaokeHeightConstraint?.constant = 25
             karaokeView.font = (karaokeView.highlightStyle == .codeSyntax)
                 ? NSFont.monospacedSystemFont(ofSize: CGFloat(fontSize + 1), weight: .semibold)
                 : NSFont.boldSystemFont(ofSize: CGFloat(fontSize + 2))
             nextLineLabel.isHidden = true
+            nextLineLabel.stringValue = ""
         } else {
             karaokeHeightConstraint?.constant = 16
-            karaokeView.font = (karaokeView.highlightStyle == .codeSyntax)
-                ? NSFont.monospacedSystemFont(ofSize: CGFloat(max(9.5, Double(fontSize) - 0.5)), weight: .semibold)
-                : NSFont.boldSystemFont(ofSize: CGFloat(fontSize))
-
-            if karaokeView.highlightStyle == .codeSyntax {
-                nextLineLabel.font = NSFont.monospacedSystemFont(ofSize: CGFloat(max(8.5, Double(fontSize) - 2.0)), weight: .regular)
-                nextLineLabel.textColor = NSColor(red: 0x6A / 255.0, green: 0x99 / 255.0, blue: 0x55 / 255.0, alpha: 0.85) // VS Code comment green
-            } else {
-                nextLineLabel.font = NSFont.systemFont(ofSize: CGFloat(max(9.5, Double(fontSize) - 1.5)))
-                nextLineLabel.textColor = .secondaryLabelColor
-            }
+            karaokeView.font = NSFont.boldSystemFont(ofSize: CGFloat(fontSize))
+            nextLineLabel.font = NSFont.systemFont(ofSize: CGFloat(max(9.5, Double(fontSize) - 1.5)))
+            nextLineLabel.textColor = .secondaryLabelColor
             nextLineLabel.isHidden = false
         }
 
@@ -1793,7 +1798,7 @@ class LyricsWidget: NSObject, PKWidget {
             var finalProgress = rawProgress
 
             // Smart Auto-Split or Auto-Fit for long lines
-            if longLyricMode == "smartSplit", let split = splitLongLyricLine(displayMainText) {
+            if karaokeView.highlightStyle != .codeSyntax && longLyricMode == "smartSplit", let split = splitLongLyricLine(displayMainText) {
                 if rawProgress < 0.50 {
                     finalMainText = split.part1
                     finalProgress = min(1.0, rawProgress * 2.0)
@@ -1858,10 +1863,12 @@ class LyricsWidget: NSObject, PKWidget {
         karaokeView.trackTitle = nowPlayingWatcher.currentTrack?.title ?? ""
         animateMainLineChange(newText: newText)
 
-        let finalUpcoming = (karaokeView.highlightStyle == .codeSyntax && !upcoming.isEmpty)
-            ? CodeLyricSynthesizer.shared.formatUpcomingComment(upcoming)
-            : upcoming
-        animateNextLineChange(label: nextLineLabel, newText: finalUpcoming)
+        if karaokeView.highlightStyle == .codeSyntax {
+            nextLineLabel.isHidden = true
+            nextLineLabel.stringValue = ""
+        } else {
+            animateNextLineChange(label: nextLineLabel, newText: upcoming)
+        }
 
         // Update Floating Desktop HUD & Ambient Window
         if let track = nowPlayingWatcher.currentTrack {

@@ -74,6 +74,10 @@ public final class CodeLyricSynthesizer: Sendable {
 
     // MARK: - Synthesis Entry Point
 
+    // Touch Bar lyric zone ≈ 230px wide, monospace font ≈ 6.5px/char → ~35 chars max per token
+    // We keep part1 ≤ 18 chars and part2 ≤ 18 chars so the full code expression fits.
+    private static let maxPartChars = 18
+
     public func synthesizeTokens(lyric: String, trackTitle: String, lineIndex: Int) -> [CodeToken] {
         var clean = lyric.trimmingCharacters(in: .whitespacesAndNewlines)
         if clean.hasPrefix("❙❙ ") {
@@ -83,31 +87,38 @@ public final class CodeLyricSynthesizer: Sendable {
         // Instrumental / Silence Detection
         if clean.isEmpty || clean.hasPrefix("♪") || clean.lowercased().contains("instrumental") {
             return [
-                CodeToken("// [audio.mute] ", .comment),
-                CodeToken("♪ ", .string),
-                CodeToken("awaiting next drop...", .comment)
+                CodeToken("// ♪ ", .comment),
+                CodeToken("awaiting...", .comment)
             ]
         }
 
         // Outro / Up Next Countdown Detection
         if clean.lowercased().contains("up next") || clean.lowercased().contains("outro") {
             return [
-                CodeToken("// [track.queue] ", .comment),
-                CodeToken("queue.next()", .method),
-                CodeToken(" -> ", .punctuation),
-                CodeToken("\"\(clean)\"", .string)
+                CodeToken("queue", .variable),
+                CodeToken(".", .punctuation),
+                CodeToken("next", .method),
+                CodeToken("() ", .bracket),
+                CodeToken("// outro", .comment)
             ]
         }
 
         let split = splitLyric(clean)
-        let part1 = escapeStringLiteral(split.part1)
-        let part2 = split.part2.map { escapeStringLiteral($0) }
+        // Truncate to maxPartChars to prevent overflow
+        let part1 = truncate(escapeStringLiteral(split.part1), to: Self.maxPartChars)
+        let part2 = split.part2.map { truncate(escapeStringLiteral($0), to: Self.maxPartChars) }
 
         // Deterministic Seed per Line & Track
         let rawSeed = abs(clean.hashValue ^ (trackTitle.hashValue &* 31) ^ (lineIndex &* 101))
         let archetype = rawSeed % 16
 
         return buildArchetype(index: archetype, part1: part1, part2: part2, seed: rawSeed)
+    }
+
+    private func truncate(_ s: String, to maxChars: Int) -> String {
+        guard s.count > maxChars else { return s }
+        let truncIdx = s.index(s.startIndex, offsetBy: maxChars - 1)
+        return String(s[..<truncIdx]) + "…"
     }
 
     // MARK: - Smart Split Logic
