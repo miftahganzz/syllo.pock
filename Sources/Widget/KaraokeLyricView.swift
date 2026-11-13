@@ -116,41 +116,6 @@ final class KaraokeLyricView: NSView {
 
     func updateText(_ newText: String, animation: String) {
         guard self.text != newText else { return }
-
-        guard animation != "instant", wantsLayer, let layer = self.layer else {
-            self.text = newText
-            return
-        }
-
-        layer.removeAnimation(forKey: "lineTransition")
-        layer.removeAnimation(forKey: "popScale")
-
-        let transition = CATransition()
-        transition.duration = 0.22
-        transition.timingFunction = CAMediaTimingFunction(name: .easeOut)
-
-        if highlightStyle == .codeSyntax {
-            // For code syntax, crossfade cleanly to avoid push collisions
-            transition.type = .fade
-        } else {
-            switch animation {
-            case "fade":
-                transition.type = .fade
-            case "pop":
-                transition.type = .fade
-                let pop = CAKeyframeAnimation(keyPath: "transform.scale")
-                pop.values = [0.93, 1.04, 1.0]
-                pop.keyTimes = [0.0, 0.55, 1.0]
-                pop.duration = 0.22
-                pop.timingFunction = CAMediaTimingFunction(name: .easeOut)
-                layer.add(pop, forKey: "popScale")
-            default: // slide
-                transition.type = .push
-                transition.subtype = .fromBottom
-            }
-        }
-
-        layer.add(transition, forKey: "lineTransition")
         self.text = newText
     }
 
@@ -195,20 +160,20 @@ final class KaraokeLyricView: NSView {
         return size
     }
 
-    /// Compute cumulative pixel widths at each character boundary (cached).
-    /// widths[i] = pixel offset from text start to end of character at index i (0-based).
-    /// widths.count == text.count.  widths is empty if text is empty.
+    /// Compute exact pixel widths at each character boundary with authentic typography & kerning (cached).
+    /// widths[i] = exact typographic pixel offset from text start to character i + 1.
     private func charWidths(for str: String, font: NSFont) -> [CGFloat] {
         if let c = _cachedCharWidths, c.text == str, c.font == font { return c.widths }
 
         let attrs: [NSAttributedString.Key: Any] = [.font: font]
-        var result = [CGFloat](repeating: 0, count: str.count)
-        var cumulative: CGFloat = 0
+        let ns = str as NSString
+        let count = str.count
+        guard count > 0 else { return [] }
 
-        for (i, char) in str.enumerated() {
-            let charWidth = (String(char) as NSString).size(withAttributes: attrs).width
-            cumulative += charWidth
-            result[i] = cumulative
+        var result = [CGFloat](repeating: 0, count: count)
+        for i in 1...count {
+            let sub = ns.substring(to: i) as NSString
+            result[i - 1] = sub.size(withAttributes: attrs).width
         }
 
         _cachedCharWidths = (text: str, font: font, widths: result)
@@ -315,6 +280,10 @@ final class KaraokeLyricView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        
+        // 1. Wipe the layer backing store completely on every frame to kill all ghosting & artifacts
+        ctx.clear(bounds)
         guard !text.isEmpty else { return }
 
         // All progress values clamped defensively
@@ -332,27 +301,34 @@ final class KaraokeLyricView: NSView {
         // Shared layout for modes 1-4
         // ─────────────────────────────────────────────
         let paraStyle = NSMutableParagraphStyle()
-        paraStyle.alignment = textAlignment
-        paraStyle.lineBreakMode = .byTruncatingTail
+        paraStyle.alignment = .left
+        paraStyle.lineBreakMode = .byClipping
 
         let ns = text as NSString
         let tsz = textSize(str: ns, font: font)
         let textY = max(0, (bounds.height - tsz.height) / 2)
-        let textX: CGFloat
-        switch textAlignment {
-        case .center: textX = max(0, (bounds.width - tsz.width) / 2)
-        case .right:  textX = max(0, bounds.width - tsz.width)
-        default:      textX = 0
-        }
-        let textRect = NSRect(x: textX, y: textY,
-                              width: min(bounds.width - textX, tsz.width + 4),
-                              height: tsz.height)
+        let availableW = max(10, bounds.width)
 
-        // Build glow shadow once
+        var textX: CGFloat
+        if tsz.width > availableW {
+            // Horizontal auto-pan for lyrics longer than the available Touch Bar width
+            let overflow = tsz.width - availableW
+            let scrollProgress = min(1.0, max(0.0, (p - 0.15) / 0.70))
+            textX = -(overflow * CGFloat(scrollProgress))
+        } else {
+            switch textAlignment {
+            case .center: textX = max(0, (availableW - tsz.width) / 2)
+            case .right:  textX = max(0, availableW - tsz.width)
+            default:      textX = 0
+            }
+        }
+
+        let drawPoint = NSPoint(x: textX, y: textY)
+
         let glowShadow = NSShadow()
         if enableGlow {
-            glowShadow.shadowColor = activeColor.withAlphaComponent(0.78)
-            glowShadow.shadowBlurRadius = 5.5
+            glowShadow.shadowColor = activeColor.withAlphaComponent(0.80)
+            glowShadow.shadowBlurRadius = 5.0
             glowShadow.shadowOffset = .zero
         }
 
@@ -369,19 +345,26 @@ final class KaraokeLyricView: NSView {
         // MARK: Mode 1 · Line Focus / Highlight Disabled
         // ─────────────────────────────────────────────
         if !isHighlightEnabled || highlightStyle == .lineFocus || p >= 0.999 {
-            ns.draw(in: textRect, withAttributes: activeAttrs)
+            ctx.saveGState()
+            ctx.clip(to: bounds)
+            ns.draw(at: drawPoint, withAttributes: activeAttrs)
+            ctx.restoreGState()
             return
         }
 
-        // Draw dimmed base layer (all modes below need it)
-        ns.draw(in: textRect, withAttributes: inactiveAttrs)
+        ctx.saveGState()
+        ctx.clip(to: bounds)
 
-        guard p > 0.001 else { return }
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        // Draw dimmed base text at exact origin
+        ns.draw(at: drawPoint, withAttributes: inactiveAttrs)
 
-        // Pre-compute cumulative char widths once per text+font
+        guard p > 0.001 else {
+            ctx.restoreGState()
+            return
+        }
+
         let cwidths = charWidths(for: text, font: font)
-        let totalWidth = cwidths.last ?? 0
+        let totalWidth = cwidths.last ?? tsz.width
 
         // ─────────────────────────────────────────────
         // MARK: Mode 2 · Word Snap (whole-word block)
@@ -389,15 +372,16 @@ final class KaraokeLyricView: NSView {
         if highlightStyle == .wordBlock {
             let segs = wordSegments(for: text)
             let idx  = activeWordIndex(from: segs, progress: p)
-            guard idx >= 0, idx < segs.count else { return }
+            if idx >= 0, idx < segs.count {
+                let seg = segs[idx]
+                let clipEnd = seg.startCharOffset + seg.charCount
+                let clipW = prefixWidth(widths: cwidths, charCount: clipEnd)
 
-            let seg      = segs[idx]
-            let clipEnd  = seg.startCharOffset + seg.charCount
-            let clipW    = min(textRect.width, prefixWidth(widths: cwidths, charCount: clipEnd))
-
-            ctx.saveGState()
-            ctx.clip(to: NSRect(x: textRect.minX, y: 0, width: clipW, height: bounds.height))
-            ns.draw(in: textRect, withAttributes: activeAttrs)
+                ctx.saveGState()
+                ctx.clip(to: NSRect(x: textX, y: 0, width: clipW, height: bounds.height))
+                ns.draw(at: drawPoint, withAttributes: activeAttrs)
+                ctx.restoreGState()
+            }
             ctx.restoreGState()
             return
         }
@@ -408,47 +392,40 @@ final class KaraokeLyricView: NSView {
         if highlightStyle == .wordPill {
             let segs = wordSegments(for: text)
             let idx  = activeWordIndex(from: segs, progress: p)
-            guard idx >= 0, idx < segs.count else { return }
-
-            // 1. Draw all PAST words at 75% brightness (non-overlapping with active)
-            if idx > 0 {
-                let prevEnd = segs[idx - 1].startCharOffset + segs[idx - 1].charCount
-                let pastW   = min(textRect.width, prefixWidth(widths: cwidths, charCount: prevEnd))
-                if pastW > 0 {
-                    let pastAttrs: [NSAttributedString.Key: Any] = [
-                        .font: font,
-                        .foregroundColor: activeColor.withAlphaComponent(0.72),
-                        .paragraphStyle: paraStyle
-                    ]
-                    ctx.saveGState()
-                    ctx.clip(to: NSRect(x: textRect.minX, y: 0, width: pastW, height: bounds.height))
-                    ns.draw(in: textRect, withAttributes: pastAttrs)
-                    ctx.restoreGState()
+            if idx >= 0, idx < segs.count {
+                // Past words at 75% alpha
+                if idx > 0 {
+                    let prevEnd = segs[idx - 1].startCharOffset + segs[idx - 1].charCount
+                    let pastW = prefixWidth(widths: cwidths, charCount: prevEnd)
+                    if pastW > 0 {
+                        let pastAttrs: [NSAttributedString.Key: Any] = [
+                            .font: font,
+                            .foregroundColor: activeColor.withAlphaComponent(0.72),
+                            .paragraphStyle: paraStyle
+                        ]
+                        ctx.saveGState()
+                        ctx.clip(to: NSRect(x: textX, y: 0, width: pastW, height: bounds.height))
+                        ns.draw(at: drawPoint, withAttributes: pastAttrs)
+                        ctx.restoreGState()
+                    }
                 }
+
+                // Pill background behind active word
+                let seg = segs[idx]
+                let segStartW = prefixWidth(widths: cwidths, charCount: seg.startCharOffset)
+                let segEndW = prefixWidth(widths: cwidths, charCount: seg.startCharOffset + seg.charCount)
+                let wordPxWidth = max(2, segEndW - segStartW)
+                let pillRect = NSRect(x: textX + segStartW - 3, y: textY - 2, width: wordPxWidth + 6, height: tsz.height + 4)
+                let pillPath = NSBezierPath(roundedRect: pillRect, xRadius: 4, yRadius: 4)
+                activeColor.withAlphaComponent(0.26).setFill()
+                pillPath.fill()
+
+                // Active glowing word
+                ctx.saveGState()
+                ctx.clip(to: NSRect(x: textX + segStartW - 2, y: 0, width: wordPxWidth + 4, height: bounds.height))
+                ns.draw(at: drawPoint, withAttributes: activeAttrs)
+                ctx.restoreGState()
             }
-
-            // 2. Pill background behind active word (no overlap with past region)
-            let seg         = segs[idx]
-            let segStartW   = prefixWidth(widths: cwidths, charCount: seg.startCharOffset)
-            let segEndW     = prefixWidth(widths: cwidths, charCount: seg.startCharOffset + seg.charCount)
-            let wordPxWidth = max(2, segEndW - segStartW)
-            let pillX       = textRect.minX + segStartW - 3
-            let pillW       = wordPxWidth + 6
-            let pillRect    = NSRect(x: pillX, y: textY - 2, width: pillW, height: tsz.height + 4)
-            let pillPath    = NSBezierPath(roundedRect: pillRect, xRadius: 4, yRadius: 4)
-            activeColor.withAlphaComponent(0.26).setFill()
-            pillPath.fill()
-
-            // 3. Active word glowing text (strict clip to pill word only, no past overlap)
-            let activeWordAttrs: [NSAttributedString.Key: Any] = [
-                .font: font, .foregroundColor: activeColor,
-                .shadow: glowShadow, .paragraphStyle: paraStyle
-            ]
-            ctx.saveGState()
-            let wordClipX = textRect.minX + max(0, segStartW - 2)
-            let wordClipW = wordPxWidth + 4
-            ctx.clip(to: NSRect(x: wordClipX, y: 0, width: wordClipW, height: bounds.height))
-            ns.draw(in: textRect, withAttributes: activeWordAttrs)
             ctx.restoreGState()
             return
         }
@@ -456,16 +433,12 @@ final class KaraokeLyricView: NSView {
         // ─────────────────────────────────────────────
         // MARK: Mode 4 · Smooth Karaoke Sweep (progressive fill)
         // ─────────────────────────────────────────────
-        // Use cumulative widths for pixel-perfect, glitch-free sweep
-        let totalChars   = text.count
-        guard totalChars > 0 else { return }
-        let rawCharPos   = Double(p) * Double(totalChars)
-        let baseChar     = min(totalChars - 1, Int(floor(rawCharPos)))
-        let fraction     = rawCharPos - Double(baseChar)
+        let totalChars = text.count
+        let rawCharPos = Double(p) * Double(totalChars)
+        let baseChar = min(totalChars - 1, Int(floor(rawCharPos)))
+        let fraction = rawCharPos - Double(baseChar)
 
-        // Width at end of baseChar
-        let baseW        = prefixWidth(widths: cwidths, charCount: baseChar)
-        // Width of the NEXT char (baseChar + 1)
+        let baseW = prefixWidth(widths: cwidths, charCount: baseChar)
         let nextW: CGFloat
         if baseChar + 1 <= totalChars {
             let wEnd = prefixWidth(widths: cwidths, charCount: baseChar + 1)
@@ -474,16 +447,18 @@ final class KaraokeLyricView: NSView {
             nextW = 0
         }
 
-        let fillW = min(totalWidth, min(textRect.width, baseW + nextW * CGFloat(fraction)))
-        guard fillW > 0 else { return }
+        let fillW = min(totalWidth, baseW + nextW * CGFloat(fraction))
+        if fillW > 0 {
+            ctx.saveGState()
+            ctx.clip(to: NSRect(x: textX, y: 0, width: fillW, height: bounds.height))
+            ns.draw(at: drawPoint, withAttributes: activeAttrs)
+            ctx.restoreGState()
+        }
 
-        ctx.saveGState()
-        ctx.clip(to: NSRect(x: textRect.minX, y: 0, width: fillW, height: bounds.height))
-        ns.draw(in: textRect, withAttributes: activeAttrs)
         ctx.restoreGState()
     }
 
-    // MARK: - Code Syntax Drawing (Glitch-Free Non-Overlapping Architecture)
+    // MARK: - Code Syntax Drawing (Glitch-Free Non-Overlapping Subpixel Architecture)
 
     private func drawCodeSyntax(progress p: CGFloat) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
@@ -513,11 +488,9 @@ final class KaraokeLyricView: NSView {
         ctx.clip(to: bounds)
 
         let targetW = naturalW * effectiveP
-        var activeCharCount = 0
         var activePixelWidth: CGFloat = 0.0
 
         if effectiveP >= 0.999 {
-            activeCharCount = totalLen
             activePixelWidth = naturalW
         } else if effectiveP > 0.001 {
             var accW: CGFloat = 0
@@ -526,40 +499,38 @@ final class KaraokeLyricView: NSView {
                 let charW = charAttr.size().width
                 if accW + charW > targetW { break }
                 accW += charW
-                activeCharCount += 1
             }
             activePixelWidth = accW
         }
 
-        // 1. Draw Active Portion (0 ..< activeCharCount) in 100% vibrant syntax colors
-        if activeCharCount > 0 {
-            let activeSub = active.attributedSubstring(from: NSRange(location: 0, length: activeCharCount))
-            activeSub.draw(at: NSPoint(x: drawX, y: textY))
+        let drawPoint = NSPoint(x: drawX, y: textY)
+
+        // 1. Draw base dimmed code line (100% of tokens in dimmed syntax)
+        dimmed.draw(at: drawPoint)
+
+        // 2. Draw active typed code line clipped exactly up to activePixelWidth (1:1 subpixel match, zero glyph drift)
+        if activePixelWidth > 0 {
+            ctx.saveGState()
+            ctx.clip(to: NSRect(x: drawX, y: 0, width: activePixelWidth, height: bounds.height))
+            active.draw(at: drawPoint)
+            ctx.restoreGState()
         }
 
-        // 2. Draw Dimmed Portion (activeCharCount ..< totalLen) in 28% ghost syntax colors
-        // Note: Starts strictly at drawX + activePixelWidth! ZERO GLYPH OVERLAP!
-        if activeCharCount < totalLen {
-            let remaining = totalLen - activeCharCount
-            let dimmedSub = dimmed.attributedSubstring(from: NSRange(location: activeCharCount, length: remaining))
-            dimmedSub.draw(at: NSPoint(x: drawX + activePixelWidth, y: textY))
-        }
-
-        // 3. Draw Neon Red Glowing Cursor (#FF3B3B) between active and dimmed
+        // 3. Draw Neon Red Glowing Cursor (#FF3B3B)
         let isTyping = effectiveP > 0.001 && effectiveP < 0.999
         let cursorX = drawX + activePixelWidth + 1.0
         let cursorH = max(8.0, fullSize.height - 2.0)
 
-        let blinkCycle: Double = 1.2
+        let blinkCycle: Double = 1.0
         let cursorVisible = isTyping || (fmod(CACurrentMediaTime(), blinkCycle) < (blinkCycle * 0.55))
 
         if cursorVisible && cursorX >= -2 && cursorX < bounds.width - 2 {
-            let cursorRect = NSRect(x: cursorX, y: textY + 1.0, width: 5.5, height: cursorH)
+            let cursorRect = NSRect(x: cursorX, y: textY + 1.0, width: 4.5, height: cursorH)
             let cursorPath = NSBezierPath(roundedRect: cursorRect, xRadius: 1.2, yRadius: 1.2)
 
             ctx.saveGState()
             let glowColor = NSColor(red: 1.0, green: 0.23, blue: 0.23, alpha: 0.95).cgColor
-            ctx.setShadow(offset: .zero, blur: 5.0, color: glowColor)
+            ctx.setShadow(offset: .zero, blur: 4.5, color: glowColor)
             NSColor(red: 1.0, green: 0.23, blue: 0.23, alpha: 1.0).setFill()
             cursorPath.fill()
             ctx.restoreGState()

@@ -582,20 +582,33 @@ class LyricsWidget: NSObject, PKWidget {
     // MARK: - Touch Bar Interactions (Single Tap to Copy, Double Tap to Play/Pause, Pan to Seek)
 
     private func setupGesturesOnTapButton() {
+        let doubleClick = NSClickGestureRecognizer(target: self, action: #selector(handleDoubleTapGesture))
+        doubleClick.numberOfClicksRequired = 2
+        doubleClick.delaysPrimaryMouseButtonEvents = false
+
         let pan = NSPanGestureRecognizer(target: self, action: #selector(handlePanGesture(_:)))
+        pan.delaysPrimaryMouseButtonEvents = false
+
+        tapButton.addGestureRecognizer(doubleClick)
         tapButton.addGestureRecognizer(pan)
+    }
+
+    @objc private func handleDoubleTapGesture() {
+        singleTapTimer?.invalidate()
+        singleTapTimer = nil
+        lastTapTimestamp = 0
+        handleDoubleTap()
     }
 
     @objc private func handleTouchBarTapAction() {
         let now = Date().timeIntervalSince1970
         let delta = now - lastTapTimestamp
 
-        if delta < 0.38 {
+        if delta < 0.45 && delta > 0.04 {
             // DOUBLE TAP DETECTED -> TOGGLE PLAY / PAUSE
             singleTapTimer?.invalidate()
             singleTapTimer = nil
             lastTapTimestamp = 0
-            triggerHapticFeedback()
             handleDoubleTap()
         } else {
             // SINGLE TAP -> SCHEDULE COPY
@@ -621,6 +634,8 @@ class LyricsWidget: NSObject, PKWidget {
 
         switch gesture.state {
         case .began:
+            // Require intentional drag threshold to avoid swallowing taps
+            guard abs(translation.x) > 12.0 else { return }
             singleTapTimer?.invalidate()
             singleTapTimer = nil
             isScrubbing = true
@@ -630,6 +645,20 @@ class LyricsWidget: NSObject, PKWidget {
             triggerHapticFeedback()
 
         case .changed:
+            if !isScrubbing {
+                if abs(translation.x) > 12.0 {
+                    singleTapTimer?.invalidate()
+                    singleTapTimer = nil
+                    isScrubbing = true
+                    scrubStartElapsed = track.elapsedTime ?? 0
+                    scrubTargetTime = scrubStartElapsed
+                    lastScrubIndex = -1
+                    triggerHapticFeedback()
+                } else {
+                    return
+                }
+            }
+
             let deltaSeconds = Double(translation.x) * 0.4
             scrubTargetTime = max(0, min(scrubStartElapsed + deltaSeconds, duration))
 
