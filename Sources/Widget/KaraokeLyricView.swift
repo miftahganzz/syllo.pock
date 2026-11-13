@@ -20,6 +20,8 @@ enum LyricHighlightStyle: String, CaseIterable, Sendable {
     case wordPill = "wordPill"
     /// Smooth Progressive Karaoke Wipe (Continuous smooth character sweep).
     case smoothSweep = "smoothSweep"
+    /// Developer Code Syntax Highlighting (VS Code Dark+ multi-language paradigms with glowing neon red cursor).
+    case codeSyntax = "codeSyntax"
 }
 
 final class KaraokeLyricView: NSView {
@@ -40,6 +42,27 @@ final class KaraokeLyricView: NSView {
             if oldValue != text {
                 cachedWords = nil
                 cachedTextSize = nil
+                cachedCodeStrings = nil
+                needsDisplay = true
+            }
+        }
+    }
+
+    /// Current lyric line index (0-based) for deterministic code syntax variation.
+    var lineIndex: Int = 0 {
+        didSet {
+            if oldValue != lineIndex {
+                cachedCodeStrings = nil
+                needsDisplay = true
+            }
+        }
+    }
+
+    /// Current playing track title for deterministic code syntax variation.
+    var trackTitle: String = "" {
+        didSet {
+            if oldValue != trackTitle {
+                cachedCodeStrings = nil
                 needsDisplay = true
             }
         }
@@ -168,6 +191,51 @@ final class KaraokeLyricView: NSView {
     private var cachedWords: [WordSegment]?
     private var cachedWordsForString: String = ""
 
+    private var cachedCodeStrings: (dimmed: NSAttributedString, active: NSAttributedString)?
+    private var cachedCodeForText: String = ""
+    private var cachedCodeForLineIndex: Int = -1
+    private var cachedCodeForTrackTitle: String = ""
+    private var cachedCodeForFont: NSFont?
+
+    private func getCodeAttributedStrings() -> (dimmed: NSAttributedString, active: NSAttributedString) {
+        if let cached = cachedCodeStrings,
+           cachedCodeForText == text,
+           cachedCodeForLineIndex == lineIndex,
+           cachedCodeForTrackTitle == trackTitle,
+           cachedCodeForFont == font {
+            return cached
+        }
+
+        let tokens = CodeLyricSynthesizer.shared.synthesizeTokens(lyric: text, trackTitle: trackTitle, lineIndex: lineIndex)
+        let monoFont = NSFont.monospacedSystemFont(ofSize: max(9.5, font.pointSize - 0.5), weight: .medium)
+
+        let dimmedAttr = NSMutableAttributedString()
+        let activeAttr = NSMutableAttributedString()
+
+        for token in tokens {
+            let vibrant = token.color
+            let dimmed = vibrant.withAlphaComponent(0.30)
+
+            dimmedAttr.append(NSAttributedString(string: token.text, attributes: [
+                .font: monoFont,
+                .foregroundColor: dimmed
+            ]))
+
+            activeAttr.append(NSAttributedString(string: token.text, attributes: [
+                .font: monoFont,
+                .foregroundColor: vibrant
+            ]))
+        }
+
+        let result = (dimmed: dimmedAttr, active: activeAttr)
+        cachedCodeStrings = result
+        cachedCodeForText = text
+        cachedCodeForLineIndex = lineIndex
+        cachedCodeForTrackTitle = trackTitle
+        cachedCodeForFont = font
+        return result
+    }
+
     override var isOpaque: Bool {
         return false
     }
@@ -253,6 +321,63 @@ final class KaraokeLyricView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard !text.isEmpty else { return }
+
+        // MARK: 0. Developer Code Syntax Highlighting Mode (VS Code Dark+ & Neon Red Cursor)
+        if highlightStyle == .codeSyntax {
+            let codeStrings = getCodeAttributedStrings()
+            let fullSize = codeStrings.active.size()
+            let textY = max(0, (bounds.height - fullSize.height) / 2)
+            let textX: CGFloat = 2.0
+
+            // 1. Draw Dimmed Syntax Ghost Background
+            codeStrings.dimmed.draw(at: NSPoint(x: textX, y: textY))
+
+            guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+
+            // 2. Draw Vibrant Active Code Portion
+            let totalChars = codeStrings.active.length
+            let effectiveProgress = isHighlightEnabled ? progress : 1.0
+            let activeCharCount = min(totalChars, Int(ceil(effectiveProgress * CGFloat(totalChars))))
+
+            var activeWidth: CGFloat = 0.0
+            if activeCharCount > 0 {
+                let activeSub = codeStrings.active.attributedSubstring(from: NSRange(location: 0, length: activeCharCount))
+                activeWidth = activeSub.size().width
+
+                ctx.saveGState()
+                let clipRect = NSRect(x: textX, y: 0, width: activeWidth, height: bounds.height)
+                ctx.clip(to: clipRect)
+                codeStrings.active.draw(at: NSPoint(x: textX, y: textY))
+                ctx.restoreGState()
+            }
+
+            // 3. Draw Neon Red Blinking Cursor (#FF3B3B)
+            let cursorX = textX + activeWidth + 1.0
+            let cursorY = textY + 1.0
+            let cursorWidth: CGFloat = 6.0
+            let cursorHeight: CGFloat = max(8.0, fullSize.height - 2.0)
+
+            let isTyping = effectiveProgress > 0.001 && effectiveProgress < 0.999
+            let blinkVisible = isTyping || (Int(CACurrentMediaTime() * 2.0) % 2 == 0)
+
+            if blinkVisible && cursorX < bounds.width - 2.0 {
+                let cursorRect = NSRect(x: cursorX, y: cursorY, width: cursorWidth, height: cursorHeight)
+                let cursorPath = NSBezierPath(roundedRect: cursorRect, xRadius: 1.0, yRadius: 1.0)
+
+                ctx.saveGState()
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor(red: 1.0, green: 0.23, blue: 0.23, alpha: 0.95)
+                shadow.shadowBlurRadius = 4.5
+                shadow.shadowOffset = .zero
+                shadow.set()
+
+                NSColor(red: 1.0, green: 0.23, blue: 0.23, alpha: 1.0).setFill()
+                cursorPath.fill()
+                ctx.restoreGState()
+            }
+
+            return
+        }
 
         let paraStyle = NSMutableParagraphStyle()
         paraStyle.alignment = textAlignment

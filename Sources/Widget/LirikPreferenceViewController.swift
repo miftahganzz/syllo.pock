@@ -582,14 +582,16 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
                 "Word Snap (Seblok Kata Utuh)",
                 "Apple Music Line Focus",
                 "Word Pill (Kapsul Kata)",
-                "Smooth Karaoke Sweep"
+                "Smooth Karaoke Sweep",
+                "Dev Code Syntax (VS Code Dark+)"
             ])
         } else {
             stylePopUp.addItems(withTitles: [
                 "Word Snap (Whole-Word Block)",
                 "Apple Music Line Focus",
                 "Word Pill (Capsule Bubble)",
-                "Smooth Karaoke Sweep"
+                "Smooth Karaoke Sweep",
+                "Dev Code Syntax (VS Code Dark+)"
             ])
         }
         stylePopUp.selectItem(at: max(0, selectedStyleIdx))
@@ -803,6 +805,7 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         case "lineFocus": stylePopUp.selectItem(at: 1)
         case "wordPill": stylePopUp.selectItem(at: 2)
         case "smoothSweep": stylePopUp.selectItem(at: 3)
+        case "codeSyntax": stylePopUp.selectItem(at: 4)
         default: stylePopUp.selectItem(at: 0) // wordBlock
         }
 
@@ -997,6 +1000,7 @@ class SylloPreferenceViewController: NSViewController, PKWidgetPreference {
         case 1: style = "lineFocus"
         case 2: style = "wordPill"
         case 3: style = "smoothSweep"
+        case 4: style = "codeSyntax"
         default: style = "wordBlock"
         }
         UserDefaults.standard.set(style, forKey: Self.keyLyricHighlightStyle)
